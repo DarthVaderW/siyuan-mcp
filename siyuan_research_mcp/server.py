@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import random
@@ -53,8 +54,11 @@ ALLOW_RAW_API = os.getenv("SIYUAN_ALLOW_RAW_API", "").lower() in {
     "yes",
     "on",
 }
+MCP_HOST = os.getenv("SIYUAN_MCP_HOST", "127.0.0.1")
+MCP_PORT = int(os.getenv("SIYUAN_MCP_PORT", "6816"))
+MCP_PATH = os.getenv("SIYUAN_MCP_PATH", "/mcp")
 
-mcp = FastMCP("siyuan-mcp")
+mcp = FastMCP("siyuan-mcp", host=MCP_HOST, port=MCP_PORT, streamable_http_path=MCP_PATH)
 
 
 @mcp.resource("siyuan://config")
@@ -1286,7 +1290,22 @@ def stable_json(value: Any) -> str:
 
 
 def main() -> None:
-    mcp.run()
+    parser = argparse.ArgumentParser(description="Run the SiYuan MCP server.")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default=os.getenv("SIYUAN_MCP_TRANSPORT", "stdio"),
+        help="MCP transport. Use streamable-http for Codex UI URL mode.",
+    )
+    parser.add_argument("--host", default=MCP_HOST, help="HTTP host for streamable-http.")
+    parser.add_argument("--port", type=int, default=MCP_PORT, help="HTTP port for streamable-http.")
+    parser.add_argument("--path", default=MCP_PATH, help="HTTP MCP path for streamable-http.")
+    args = parser.parse_args()
+
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+    mcp.settings.streamable_http_path = args.path
+    mcp.run(transport=args.transport)
 
 
 if __name__ == "__main__":
