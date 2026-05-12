@@ -1,86 +1,64 @@
-# 在 Codex 中安装 SiYuan MCP
+# Codex Install
 
-这个仓库是纯 SiYuan MCP。它是标准 stdio MCP server，可以被支持 MCP 的 Codex 客户端挂载。
+This repository is a pure SiYuan MCP. It exposes low-level SiYuan document,
+block, search, attribute, and AttributeView/database tools.
 
-## 安装依赖
+## Simple URL Mode
 
-在项目目录执行：
+Run the local HTTP runtime:
 
 ```bash
-python -m pip install -e .
+scripts/run_siyuan_mcp_http.sh
 ```
 
-## 本机开发版
+Then open Codex Settings -> MCP and add a URL MCP:
 
-Windows 示例：
+```text
+URL: http://127.0.0.1:6816/mcp
+```
+
+Add headers in Codex UI:
+
+```text
+Authorization: Bearer <your SiYuan API token>
+X-SiYuan-Base-Url: http://127.0.0.1:6806
+X-SiYuan-Default-Notebook: <formal notebook name or id>
+X-SiYuan-Codex-Notebook: <CodeX/test notebook name or id>
+X-SiYuan-Allow-Raw-API: false
+```
+
+You can use `X-SiYuan-Token: <your token>` instead of the Authorization header
+if that is easier in your Codex UI.
+
+## Developer Command Mode
+
+For development, Codex can start the MCP with a local command:
 
 ```toml
 [mcp_servers.siyuan]
-command = "C:\\Users\\Haoti\\Documents\\Codex\\2026-04-28\\mcp-zotero-codex\\scripts\\run_siyuan_mcp_uv.cmd"
-args = []
+command = "/bin/bash"
+args = ["/Users/<you>/projects/siyuan-mcp/scripts/run_siyuan_mcp_uv.sh"]
 ```
 
-Mac 示例：
-
-```toml
-[mcp_servers.siyuan]
-command = "python"
-args = ["/Users/haoti/path/to/siyuan-mcp/siyuan_research_mcp/server.py"]
-```
-
-服务会自动读取项目根目录的 `.env`。Codex MCP 配置和可视化配置界面建议只长期保存 `command` 和 `args`，不要保存真实 token。临时测试可以显式传 `env`，但正式多机配置以本机 `.env` 为准。
-
-本机 Windows 的可复制配置也保存在 `docs/CODEX_CONFIG_SNIPPET.toml`。
-
-## Node 备用版
-
-如果临时需要使用 Node 版：
-
-```toml
-[mcp_servers.siyuan-node]
-command = "node"
-args = ["C:\\Users\\Haoti\\Documents\\Codex\\2026-04-28\\mcp-zotero-codex\\src\\server.js"]
-```
-
-## 推荐的跨设备方式
-
-1. 把项目上传到私有 GitHub 仓库。
-2. 不要上传 `.env`。
-3. 每台设备 clone 仓库。
-4. 每台设备各自创建自己的 `.env`。
-5. Codex 配置指向本机 clone 后的 wrapper 或 `siyuan_research_mcp/server.py`。
-
-## 未来包安装方式
-
-如果后续要做成真正可安装包，可以走两条路线：
-
-- Node/npm：发布到 npm 或用 GitHub repo 安装，然后通过 `npx` 启动。
-- Python/uv：改写成 Python 包，然后通过 `uvx` 或 `uv run` 启动。
-
-当前版本先用本地路径最稳，方便快速改工具和调试思源 API。
-
-## 一键安装到 Codex
-
-在普通终端里运行：
-
-```bash
-python scripts/install_into_codex.py
-```
-
-它会更新：
+In command mode, configure secrets with shell environment variables or an
+untracked `.env` in this repository:
 
 ```text
-~/.codex/config.toml
+SIYUAN_BASE_URL=http://127.0.0.1:6806
+SIYUAN_TOKEN=<your SiYuan API token>
+SIYUAN_DEFAULT_NOTEBOOK=<formal notebook name or id>
+SIYUAN_CODEX_NOTEBOOK=<CodeX/test notebook name or id>
+SIYUAN_ALLOW_RAW_API=false
 ```
 
-并复制仓库里的 skill 到：
+Do not commit `.env` or real tokens.
 
-```text
-~/.codex/skills
-```
-
-先预览可以运行：
+## Verify
 
 ```bash
-python scripts/install_into_codex.py --dry-run
+uv run python scripts/smoke_test_mcp.py --config-command --expect-tool siyuan_ping
+uv run python tests/smoke_test_http_mcp.py --expect-tool siyuan_ping
 ```
+
+The smoke tests verify MCP tool discovery. `siyuan_ping` requires SiYuan running
+locally and a valid token.

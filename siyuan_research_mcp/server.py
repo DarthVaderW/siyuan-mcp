@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -61,17 +61,99 @@ MCP_PATH = os.getenv("SIYUAN_MCP_PATH", "/mcp")
 mcp = FastMCP("siyuan-mcp", host=MCP_HOST, port=MCP_PORT, streamable_http_path=MCP_PATH)
 
 
+def request_headers() -> Any:
+    try:
+        request = mcp.get_context().request_context.request
+    except Exception:
+        return {}
+    return getattr(request, "headers", {}) or {}
+
+
+def header_value(*names: str) -> str | None:
+    headers = request_headers()
+    for name in names:
+        try:
+            value = headers.get(name)
+        except AttributeError:
+            value = None
+        if value:
+            return str(value).strip()
+    return None
+
+
+def bearer_token() -> str | None:
+    authorization = header_value("authorization")
+    if not authorization:
+        return None
+    scheme, _, value = authorization.partition(" ")
+    if scheme.lower() in {"bearer", "token"} and value.strip():
+        return value.strip()
+    return None
+
+
+def env_or_header(env_value: str, *headers: str) -> str:
+    return header_value(*headers) or env_value
+
+
+def truthy_header(env_value: bool, *headers: str) -> bool:
+    value = header_value(*headers)
+    if value is None:
+        return env_value
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def current_base_url() -> str:
+    return env_or_header(
+        BASE_URL,
+        "x-siyuan-base-url",
+        "siyuan-base-url",
+    ).rstrip("/")
+
+
+def current_token() -> str:
+    return (
+        header_value("x-siyuan-token", "siyuan-token")
+        or bearer_token()
+        or TOKEN
+    )
+
+
+def current_default_notebook() -> str:
+    return env_or_header(
+        DEFAULT_NOTEBOOK,
+        "x-siyuan-default-notebook",
+        "siyuan-default-notebook",
+    )
+
+
+def current_codex_notebook() -> str:
+    return env_or_header(
+        CODEX_NOTEBOOK,
+        "x-siyuan-codex-notebook",
+        "siyuan-codex-notebook",
+    )
+
+
+def current_allow_raw_api() -> bool:
+    return truthy_header(
+        ALLOW_RAW_API,
+        "x-siyuan-allow-raw-api",
+        "siyuan-allow-raw-api",
+    )
+
+
 @mcp.resource("siyuan://config")
 def siyuan_config() -> str:
     """Runtime configuration without secrets."""
+    token = current_token()
     return stable_json(
         {
             "name": "siyuan-mcp",
             "version": VERSION,
-            "baseUrl": BASE_URL,
-            "defaultNotebook": DEFAULT_NOTEBOOK or None,
-            "tokenConfigured": bool(TOKEN),
-            "rawApiEnabled": ALLOW_RAW_API,
+            "baseUrl": current_base_url(),
+            "defaultNotebook": current_default_notebook() or None,
+            "tokenConfigured": bool(token),
+            "rawApiEnabled": current_allow_raw_api(),
             "implementation": "python",
         }
     )
@@ -84,7 +166,7 @@ def siyuan_ping() -> dict[str, Any]:
     notebooks = call_siyuan("/api/notebook/lsNotebooks", {})
     return {
         "ok": True,
-        "baseUrl": BASE_URL,
+        "baseUrl": current_base_url(),
         "version": version,
         "notebooks": [public_notebook(item) for item in extract_notebooks(notebooks)],
     }
@@ -374,7 +456,7 @@ def siyuan_append_experience_note(
     """Append a reusable Codex/MCP/SiYuan experience note under the experience library."""
     return siyuan_upsert_doc_section(
         path=notePath,
-        notebook=notebook or CODEX_NOTEBOOK,
+        notebook=notebook or current_codex_notebook(),
         title=title,
         markdown=markdown,
         attrs={
@@ -891,7 +973,7 @@ def siyuan_av_batch_set_cells(
 @mcp.tool()
 def siyuan_call_api(endpoint: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Call a raw SiYuan /api endpoint. Disabled by default."""
-    if not ALLOW_RAW_API:
+    if not current_allow_raw_api():
         raise PermissionError("Raw API access is disabled. Set SIYUAN_ALLOW_RAW_API=true to enable it.")
     assert_api_endpoint(endpoint)
     data = call_siyuan(endpoint, payload or {})
@@ -900,17 +982,19 @@ def siyuan_call_api(endpoint: str, payload: dict[str, Any] | None = None) -> dic
 
 def call_siyuan(endpoint: str, payload: dict[str, Any] | None = None) -> Any:
     assert_api_endpoint(endpoint)
-    if not TOKEN:
+    base_url = current_base_url()
+    token = current_token()
+    if not token:
         raise RuntimeError("SIYUAN_TOKEN is not configured.")
 
     body = json.dumps(payload or {}).encode("utf-8")
     request = urllib.request.Request(
-        BASE_URL + endpoint,
+        base_url + endpoint,
         data=body,
         method="POST",
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Token {TOKEN}",
+            "Authorization": f"Token {token}",
         },
     )
 
@@ -921,7 +1005,7 @@ def call_siyuan(endpoint: str, payload: dict[str, Any] | None = None) -> Any:
         detail = error.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"SiYuan HTTP {error.code} for {endpoint}: {detail[:500]}") from error
     except urllib.error.URLError as error:
-        raise RuntimeError(f"Cannot reach SiYuan at {BASE_URL}: {error.reason}") from error
+        raise RuntimeError(f"Cannot reach SiYuan at {base_url}: {error.reason}") from error
 
     try:
         decoded = json.loads(text) if text else {}
@@ -951,7 +1035,7 @@ def find_notebook(id_or_name: str | None) -> dict[str, Any] | None:
 
 
 def resolve_notebook_id(id_or_name: str | None = None) -> str:
-    candidate = id_or_name or DEFAULT_NOTEBOOK
+    candidate = id_or_name or current_default_notebook()
     if not candidate:
         raise ValueError("Notebook is required. Provide notebook or set SIYUAN_DEFAULT_NOTEBOOK.")
 

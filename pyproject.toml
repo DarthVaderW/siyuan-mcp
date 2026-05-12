@@ -1,6 +1,6 @@
 [project]
 name = "siyuan-mcp"
-version = "0.3.2"
+version = "0.3.3"
 description = "A focused SiYuan MCP server exposing low-level SiYuan document, block, search, attribute, and database tools."
 readme = "README.md"
 requires-python = ">=3.10"
