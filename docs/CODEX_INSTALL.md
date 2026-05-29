@@ -24,7 +24,9 @@ SIYUAN_CODEX_NOTEBOOK=CodeX
 SIYUAN_ALLOW_RAW_API=false
 ```
 
-The plugin starts the stdio MCP with `uvx`; no local HTTP service is required.
+The plugin starts the stdio MCP with `uvx` from a fixed release tag; no local
+HTTP service is required, and normal MCP startup does not auto-refresh from
+GitHub.
 
 ## Claude Code Plugin Install
 

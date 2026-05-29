@@ -3,9 +3,8 @@
     "siyuan": {
       "command": "uvx",
       "args": [
-        "--refresh",
         "--from",
-        "git+https://github.com/DarthVaderW/siyuan-mcp.git@stable",
+        "git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.3",
         "siyuan-mcp"
       ],
       "env": {
