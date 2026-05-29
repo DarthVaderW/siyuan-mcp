@@ -7,27 +7,46 @@ database/AttributeView operations.
 It does not import PDFs, call Zotero, implement OpenClaw intake, or encode the
 paper-system workflow. Those responsibilities live in sibling repositories.
 
-## Configure
+## Install
 
-For end users, run the local HTTP runtime and configure these values in Codex
-MCP settings as request headers. `.env` remains a developer fallback only.
+This repository ships the same stdio MCP server for Codex and Claude Code. The
+MCP implementation is shared; only the plugin shell differs by client.
 
-Required headers for Codex UI URL mode:
+Codex:
 
-```text
-Authorization: Bearer <SiYuan API token>
-X-SiYuan-Base-Url: http://127.0.0.1:6806
-X-SiYuan-Default-Notebook: <formal paper notebook name or id>
-X-SiYuan-Codex-Notebook: <CodeX/test notebook name or id>
-X-SiYuan-Allow-Raw-API: false
+```bash
+codex plugin marketplace add DarthVaderW/siyuan-mcp --ref stable \
+  --sparse .agents/plugins \
+  --sparse plugins/siyuan-mcp
+codex plugin add siyuan-mcp@siyuan-mcp
 ```
 
-`X-SiYuan-Token: <SiYuan API token>` can be used instead of the Authorization
-header. Do not commit `.env`.
+Claude Code:
 
-## Codex MCP Config
+```text
+/plugin marketplace add DarthVaderW/siyuan-mcp
+/plugin install siyuan-mcp@darthvaderw-siyuan-mcp
+```
 
-Developer stdio mode:
+## Configure
+
+Required local values:
+
+```text
+SIYUAN_BASE_URL=http://127.0.0.1:6806
+SIYUAN_TOKEN=<your SiYuan API token>
+SIYUAN_DEFAULT_NOTEBOOK=<formal/default notebook name or id>
+SIYUAN_CODEX_NOTEBOOK=CodeX
+SIYUAN_ALLOW_RAW_API=false
+```
+
+Codex users enter these in the Codex MCP configuration UI. Claude Code users
+enter them through the plugin's `userConfig` prompt. Do not commit `.env` or
+real tokens.
+
+## Developer Command Mode
+
+For source development, point Codex or Claude Code at the local checkout:
 
 ```toml
 [mcp_servers.siyuan]
@@ -35,35 +54,10 @@ command = "/bin/bash"
 args = ["/Users/<you>/projects/siyuan-mcp/scripts/run_siyuan_mcp_uv.sh"]
 ```
 
-Local HTTP runtime mode:
-
-```bash
-scripts/run_siyuan_mcp_http.sh
-```
-
-Then add this URL in Codex MCP UI:
-
-```text
-http://127.0.0.1:6816/mcp
-```
-
-Tokens should be entered by the user in Codex MCP settings as headers, not
-committed to Git. Developer command-mode installs may still use local
-environment variables or an untracked `.env`:
-
-```text
-SIYUAN_BASE_URL=http://127.0.0.1:6806
-SIYUAN_TOKEN=<SiYuan API token>
-SIYUAN_DEFAULT_NOTEBOOK=<formal paper notebook name or id>
-SIYUAN_CODEX_NOTEBOOK=<CodeX/test notebook name or id>
-SIYUAN_ALLOW_RAW_API=false
-```
-
 ## Verify
 
 ```bash
 uv run python scripts/smoke_test_mcp.py --config-command --expect-tool siyuan_ping
-uv run python tests/smoke_test_http_mcp.py --expect-tool siyuan_ping
 ```
 
 Expected: the server lists `siyuan_*` tools.

@@ -1,0 +1,24 @@
+{
+  "name": "darthvaderw-siyuan-mcp",
+  "owner": {
+    "name": "Haotian Wang"
+  },
+  "description": "SiYuan MCP plugin marketplace.",
+  "plugins": [
+    {
+      "name": "siyuan-mcp",
+      "source": "./plugins/siyuan-mcp",
+      "displayName": "SiYuan MCP",
+      "description": "Connect Claude Code to local SiYuan tools.",
+      "version": "0.1.2",
+      "author": {
+        "name": "Haotian Wang"
+      },
+      "homepage": "https://github.com/DarthVaderW/siyuan-mcp",
+      "repository": "https://github.com/DarthVaderW/siyuan-mcp",
+      "license": "MIT",
+      "category": "productivity",
+      "tags": ["siyuan", "mcp", "notes"]
+    }
+  ]
+}

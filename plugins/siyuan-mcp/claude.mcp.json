@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "siyuan": {
+      "command": "uvx",
+      "args": [
+        "--refresh",
+        "--from",
+        "git+https://github.com/DarthVaderW/siyuan-mcp.git@stable",
+        "siyuan-mcp"
+      ],
+      "env": {
+        "SIYUAN_BASE_URL": "${user_config.siyuan_base_url}",
+        "SIYUAN_TOKEN": "${user_config.siyuan_token}",
+        "SIYUAN_DEFAULT_NOTEBOOK": "${user_config.siyuan_default_notebook}",
+        "SIYUAN_CODEX_NOTEBOOK": "${user_config.siyuan_codex_notebook}",
+        "SIYUAN_ALLOW_RAW_API": "${user_config.siyuan_allow_raw_api}"
+      }
+    }
+  }
+}

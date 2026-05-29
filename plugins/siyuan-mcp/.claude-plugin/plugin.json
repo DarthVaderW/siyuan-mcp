@@ -1,0 +1,50 @@
+{
+  "name": "siyuan-mcp",
+  "displayName": "SiYuan MCP",
+  "version": "0.1.2",
+  "description": "Connect Claude Code to local SiYuan tools.",
+  "author": {
+    "name": "Haotian Wang",
+    "url": "https://github.com/DarthVaderW"
+  },
+  "homepage": "https://github.com/DarthVaderW/siyuan-mcp",
+  "repository": "https://github.com/DarthVaderW/siyuan-mcp",
+  "license": "MIT",
+  "keywords": ["siyuan", "mcp", "notes"],
+  "mcpServers": "./claude.mcp.json",
+  "userConfig": {
+    "siyuan_base_url": {
+      "type": "string",
+      "title": "SiYuan base URL",
+      "description": "Local SiYuan HTTP API base URL.",
+      "default": "http://127.0.0.1:6806",
+      "required": true
+    },
+    "siyuan_token": {
+      "type": "string",
+      "title": "SiYuan API token",
+      "description": "Your local SiYuan API token from SiYuan settings.",
+      "sensitive": true,
+      "required": true
+    },
+    "siyuan_default_notebook": {
+      "type": "string",
+      "title": "Default notebook",
+      "description": "Formal/default SiYuan notebook name or id.",
+      "required": true
+    },
+    "siyuan_codex_notebook": {
+      "type": "string",
+      "title": "CodeX notebook",
+      "description": "Notebook name or id for tests, drafts, and Codex notes.",
+      "default": "CodeX",
+      "required": true
+    },
+    "siyuan_allow_raw_api": {
+      "type": "boolean",
+      "title": "Allow raw API",
+      "description": "Enable unrestricted raw SiYuan API calls. Leave disabled for normal use.",
+      "default": false
+    }
+  }
+}
