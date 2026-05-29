@@ -1,0 +1,23 @@
+{
+  "name": "siyuan-mcp",
+  "version": "0.1.1",
+  "description": "SiYuan MCP server template for Codex.",
+  "author": {
+    "name": "Haotian Wang",
+    "url": "https://github.com/DarthVaderW"
+  },
+  "homepage": "https://github.com/DarthVaderW/siyuan-mcp",
+  "repository": "https://github.com/DarthVaderW/siyuan-mcp",
+  "license": "MIT",
+  "keywords": ["siyuan", "mcp", "notes"],
+  "interface": {
+    "displayName": "SiYuan MCP",
+    "shortDescription": "Connect Codex to local SiYuan tools.",
+    "longDescription": "Installs the Codex MCP template for the local SiYuan MCP server. Tokens stay in local Codex configuration.",
+    "developerName": "Haotian Wang",
+    "category": "Productivity",
+    "capabilities": ["mcp"],
+    "defaultPrompt": "Use SiYuan MCP to read or write my local notes."
+  },
+  "mcpServers": "./.mcp.json"
+}

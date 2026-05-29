@@ -1,0 +1,20 @@
+{
+  "name": "siyuan-mcp",
+  "interface": {
+    "displayName": "SiYuan MCP"
+  },
+  "plugins": [
+    {
+      "name": "siyuan-mcp",
+      "source": {
+        "source": "local",
+        "path": "./plugins/siyuan-mcp"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
