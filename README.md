@@ -62,8 +62,9 @@ SIYUAN_ALLOW_RAW_API=false
 ```
 
 Codex users enter these in the Codex MCP configuration UI. Claude Code users
-enter them through the plugin's `userConfig` prompt. Do not commit `.env` or
-real tokens.
+enter them through the plugin's `userConfig` prompt. For current Claude Code
+compatibility, the token is stored with the other plugin options instead of
+using Claude's `sensitive` userConfig mode. Do not commit `.env` or real tokens.
 
 ## Developer Command Mode
 
@@ -95,8 +96,8 @@ uvx --version
 
 `uvx: command not found` means the MCP process never started. Install `uv`,
 restart Claude Code, then retry the plugin. A missing `uvx` can look like a
-token or sensitive-storage problem, but the token is not used until the MCP
-server actually starts.
+token/config problem, but the token is not used until the MCP server actually
+starts.
 
 If `uvx` works but `siyuan_ping` fails, then check:
 

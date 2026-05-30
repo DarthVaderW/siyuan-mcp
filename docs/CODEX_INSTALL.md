@@ -51,8 +51,10 @@ Inside Claude Code:
 /plugin install siyuan-mcp@darthvaderw-siyuan-mcp
 ```
 
-Claude Code prompts for the same local values through `userConfig`. The token is
-marked sensitive and stored in Claude Code's secure storage.
+Claude Code prompts for the same local values through `userConfig`. For current
+Claude Code compatibility, the token is stored with the other plugin options
+instead of using Claude's `sensitive` userConfig mode. This is local to the
+user's machine, but it is not keychain-backed.
 
 ## Developer Command Mode
 
@@ -77,8 +79,8 @@ locally and a valid token.
 
 ## Claude Code Startup Failure
 
-If Claude Code suggests the token or sensitive `userConfig` may be wrong, first
-verify that `uvx` exists:
+If Claude Code suggests the token or `userConfig` may be wrong, first verify
+that `uvx` exists:
 
 ```bash
 command -v uvx

@@ -1,7 +1,7 @@
 {
   "name": "siyuan-mcp",
   "displayName": "SiYuan MCP",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Connect Claude Code to local SiYuan tools.",
   "author": {
     "name": "Haotian Wang",
@@ -23,8 +23,7 @@
     "siyuan_token": {
       "type": "string",
       "title": "SiYuan API token",
-      "description": "Your local SiYuan API token from SiYuan settings.",
-      "sensitive": true,
+      "description": "Your local SiYuan API token from SiYuan settings. Stored in Claude Code plugin settings for compatibility with current userConfig injection.",
       "required": true
     },
     "siyuan_default_notebook": {
