@@ -12,6 +12,27 @@ paper-system workflow. Those responsibilities live in sibling repositories.
 This repository ships the same stdio MCP server for Codex and Claude Code. The
 MCP implementation is shared; only the plugin shell differs by client.
 
+Prerequisite:
+
+```bash
+uvx --version
+```
+
+If `uvx` is not found, install `uv` first. Official installer:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Homebrew is also fine on macOS:
+
+```bash
+brew install uv
+```
+
+After installing, restart Codex or Claude Code so the app can see the updated
+PATH.
+
 Codex:
 
 ```bash
@@ -61,3 +82,27 @@ uv run python scripts/smoke_test_mcp.py --config-command --expect-tool siyuan_pi
 ```
 
 Expected: the server lists `siyuan_*` tools.
+
+## Troubleshooting
+
+If Claude Code reports that the MCP failed to start, check `uvx` before
+re-entering tokens:
+
+```bash
+command -v uvx
+uvx --version
+```
+
+`uvx: command not found` means the MCP process never started. Install `uv`,
+restart Claude Code, then retry the plugin. A missing `uvx` can look like a
+token or sensitive-storage problem, but the token is not used until the MCP
+server actually starts.
+
+If `uvx` works but `siyuan_ping` fails, then check:
+
+```text
+SiYuan is running
+SIYUAN_BASE_URL is http://127.0.0.1:6806 unless you changed the port
+SIYUAN_TOKEN matches the token in SiYuan settings
+SIYUAN_DEFAULT_NOTEBOOK and SIYUAN_CODEX_NOTEBOOK exist on this computer
+```

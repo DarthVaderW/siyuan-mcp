@@ -5,6 +5,20 @@ block, search, attribute, and AttributeView/database tools.
 
 ## Codex Plugin Install
 
+Make sure `uvx` is available before installing the plugin:
+
+```bash
+uvx --version
+```
+
+If it is missing, install `uv` from Astral:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then restart Codex or Claude Code so the updated PATH is picked up.
+
 Install the public marketplace and plugin:
 
 ```bash
@@ -60,3 +74,16 @@ uv run python scripts/smoke_test_mcp.py --config-command --expect-tool siyuan_pi
 
 The smoke tests verify MCP tool discovery. `siyuan_ping` requires SiYuan running
 locally and a valid token.
+
+## Claude Code Startup Failure
+
+If Claude Code suggests the token or sensitive `userConfig` may be wrong, first
+verify that `uvx` exists:
+
+```bash
+command -v uvx
+uvx --version
+```
+
+When `uvx` is missing, Claude Code cannot start the MCP server at all. Install
+`uv`, restart Claude Code, and retry before changing the SiYuan token.
