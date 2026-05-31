@@ -42,7 +42,7 @@ Args:
   tool
   run
   --from
-  git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.7
+  git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.8
   siyuan-mcp
 ```
 
@@ -82,7 +82,7 @@ using Claude's `sensitive` userConfig mode. Do not commit `.env` or real tokens.
 ## Upgrade
 
 GUI custom MCP users upgrade by changing the Git tag in the MCP args, for
-example from `@v0.1.7` to the next release tag, then restarting Codex. Plugin
+example from `@v0.1.8` to the next release tag, then restarting Codex. Plugin
 users upgrade the marketplace snapshot, then restart Codex:
 
 ```bash
