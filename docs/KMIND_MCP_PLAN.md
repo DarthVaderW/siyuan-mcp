@@ -6,10 +6,10 @@ Claude Code or Codex.
 
 ## Current Codebase
 
-Primary repository:
+Primary development checkout:
 
 ```text
-/Users/wanghaotian/projects/siyuan-mcp
+/Users/wanghaotian/projects/research-codex-dev/components/siyuan-mcp
 GitHub: https://github.com/DarthVaderW/siyuan-mcp
 Purpose: pure SiYuan MCP server
 Main file: siyuan_research_mcp/server.py
@@ -577,4 +577,3 @@ Full paper ingestion workflow
 
 Paper-specific logic belongs in the research paper skill. The MCP should only
 provide safe KMind primitives.
-

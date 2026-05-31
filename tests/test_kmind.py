@@ -124,6 +124,42 @@ def test_backup_retention_age_limit() -> None:
         assert not old.exists() and new.exists()
 
 
+def test_backup_same_second_collision_keeps_both_files() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        asset = data_dir / "assets" / "map.kmind"
+        asset.parent.mkdir()
+        asset.write_bytes(b'{"root":{"data":{"text":"<p>x</p>"},"children":[]}}')
+
+        first = K.write_backup(
+            data_dir=data_dir,
+            asset_abs=asset,
+            asset_rel="assets/map.kmind",
+            doc_id="doc1",
+            operation="add-node",
+            sha256_before="sha1",
+            size_bytes=asset.stat().st_size,
+            timestamp="20260601-120000-000000",
+        )
+        second = K.write_backup(
+            data_dir=data_dir,
+            asset_abs=asset,
+            asset_rel="assets/map.kmind",
+            doc_id="doc1",
+            operation="add-node",
+            sha256_before="sha2",
+            size_bytes=asset.stat().st_size,
+            timestamp="20260601-120000-000000",
+        )
+
+        backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        assert first != second
+        assert (backup_dir / first).exists()
+        assert (backup_dir / second).exists()
+        index = json.loads((backup_dir / K.BACKUP_INDEX_NAME).read_text())
+        assert [entry["backupPath"] for entry in index] == [first, second]
+
+
 def main() -> None:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in tests:

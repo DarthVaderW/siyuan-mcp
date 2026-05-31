@@ -130,10 +130,13 @@ def resolve_kmind_doc(
         )
 
     data_dir = find_siyuan_data_dir()
+    data_root = data_dir.resolve()
     asset_abs = (data_dir / asset_rel).resolve()
     # Path-traversal guard: the asset must stay inside the data dir and be .kmind.
-    if not str(asset_abs).startswith(str(data_dir.resolve())):
-        raise ValueError("Resolved KMind asset escapes the SiYuan data directory.")
+    try:
+        asset_abs.relative_to(data_root)
+    except ValueError as exc:
+        raise ValueError("Resolved KMind asset escapes the SiYuan data directory.") from exc
     if asset_abs.suffix != ".kmind":
         raise ValueError(f"Resolved asset is not a .kmind file: {asset_rel}")
 
@@ -389,6 +392,9 @@ def write_backup(
     backup_dir = _backup_dir(data_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_name = f"{timestamp}__{doc_id}__before-{operation}.kmind"
+    if (backup_dir / backup_name).exists():
+        suffix = "".join(random.choice("0123456789abcdef") for _ in range(6))
+        backup_name = f"{timestamp}__{doc_id}__before-{operation}-{suffix}.kmind"
     shutil.copy2(asset_abs, backup_dir / backup_name)
 
     index = _load_backup_index(backup_dir)
@@ -463,7 +469,7 @@ def _write_with_guard(
             operation=operation,
             sha256_before=sha_before,
             size_bytes=size_before,
-            timestamp=datetime.now().strftime("%Y%m%d-%H%M%S"),
+            timestamp=datetime.now().strftime("%Y%m%d-%H%M%S-%f"),
         )
 
     asset_abs.write_bytes(new_bytes)
