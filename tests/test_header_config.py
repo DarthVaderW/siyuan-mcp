@@ -3,17 +3,19 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from siyuan_research_mcp import server
+from siyuan_research_mcp import core, server
 
 
 @contextmanager
 def headers(values: dict[str, str]) -> Iterator[None]:
-    original = server.request_headers
-    server.request_headers = lambda: values  # type: ignore[assignment]
+    # request_headers and the current_* resolvers live in core; server re-exports
+    # the resolvers, so patch the source module.
+    original = core.request_headers
+    core.request_headers = lambda: values  # type: ignore[assignment]
     try:
         yield
     finally:
-        server.request_headers = original  # type: ignore[assignment]
+        core.request_headers = original  # type: ignore[assignment]
 
 
 def main() -> None:

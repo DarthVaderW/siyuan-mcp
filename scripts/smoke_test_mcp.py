@@ -35,7 +35,12 @@ async def run(call_ping: bool, use_config_command: bool) -> int:
     if use_config_command:
         params = codex_config_params(env)
     else:
-        params = StdioServerParameters(command=sys.executable, args=[str(SERVER)], env=env)
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), env.get("PYTHONPATH", "")]))
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "siyuan_research_mcp.server"],
+            env=env,
+        )
 
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -81,7 +86,12 @@ async def run_with_expectations(args: argparse.Namespace) -> int:
     if args.config_command:
         params = codex_config_params(env)
     else:
-        params = StdioServerParameters(command=sys.executable, args=[str(SERVER)], env=env)
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), env.get("PYTHONPATH", "")]))
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "siyuan_research_mcp.server"],
+            env=env,
+        )
 
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
