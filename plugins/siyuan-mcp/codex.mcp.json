@@ -1,10 +1,12 @@
 {
   "mcpServers": {
     "siyuan": {
-      "command": "uvx",
+      "command": "uv",
       "args": [
+        "tool",
+        "run",
         "--from",
-        "git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.6",
+        "git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.7",
         "siyuan-mcp"
       ],
       "env_vars": [

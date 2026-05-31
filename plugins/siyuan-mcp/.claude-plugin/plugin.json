@@ -1,7 +1,7 @@
 {
   "name": "siyuan-mcp",
   "displayName": "SiYuan MCP",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Connect Claude Code to local SiYuan tools.",
   "author": {
     "name": "Haotian Wang",
