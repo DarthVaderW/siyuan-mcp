@@ -691,8 +691,10 @@ def dig(data: Any, *keys: str) -> Any:
     return current
 
 
-# Import side effect: registers the siyuan_av_* tools on the shared mcp instance.
+# Import side effect: registers the siyuan_av_* / siyuan_kmind_* tools on the
+# shared mcp instance.
 from siyuan_research_mcp import attributeview as attributeview  # noqa: E402,F401
+from siyuan_research_mcp import kmind as kmind  # noqa: E402,F401
 
 
 def main() -> None:
