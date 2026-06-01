@@ -430,6 +430,19 @@ def write_backup(
     return backup_name
 
 
+def _backup_path_in_dir(backup_dir: Path, backup_path: str | None) -> Path | None:
+    """Resolve a backup path only if it stays inside the backup directory."""
+    if not backup_path:
+        return None
+    base = backup_dir.resolve()
+    candidate = (backup_dir / str(backup_path)).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return None
+    return candidate
+
+
 def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: str) -> dict[str, Any]:
     """Summarize the backups recorded for one document, newest first (read-only).
 
@@ -447,7 +460,8 @@ def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: st
         if entry.get("docId") != doc_id:
             continue
         backup_path = entry.get("backupPath")
-        exists = bool(backup_path) and (backup_dir / backup_path).exists()
+        backup_abs = _backup_path_in_dir(backup_dir, backup_path)
+        exists = backup_abs is not None and backup_abs.exists()
         if not exists:
             missing_files += 1
         total_size += int(entry.get("sizeBytes") or 0)
@@ -634,7 +648,9 @@ def resolve_diff_reference(
 
     if against_backup_path:
         name = Path(against_backup_path).name
-        ref_abs = backup_dir / name
+        ref_abs = _backup_path_in_dir(backup_dir, name)
+        if ref_abs is None:
+            raise ValueError(f"Backup path escapes backup dir: {against_backup_path}")
         if not ref_abs.exists():
             raise FileNotFoundError(f"Backup not found in backup dir: {against_backup_path}")
         entry = next((e for e in index if e.get("backupPath") == name), None)
@@ -652,7 +668,9 @@ def resolve_diff_reference(
         )
         if not entry:
             raise ValueError(f"No backup with sha256Before={against_sha256} for document {doc_id}.")
-        ref_abs = backup_dir / entry["backupPath"]
+        ref_abs = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+        if ref_abs is None:
+            raise ValueError(f"Backup path escapes backup dir: {entry.get('backupPath')}")
         if not ref_abs.exists():
             raise FileNotFoundError(f"Backup file missing on disk: {entry['backupPath']}")
         root, sha256, size_bytes = _load_kmind_root(ref_abs)
@@ -673,7 +691,14 @@ def resolve_diff_reference(
                 "against_sha256, or against_file to diff against an explicit reference."
             ),
         }
-    ref_abs = backup_dir / entry["backupPath"]
+    ref_abs = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+    if ref_abs is None:
+        return {
+            "status": "no-reference-available",
+            "root": None,
+            "reference": None,
+            "message": f"Latest backup path escapes backup dir: {entry.get('backupPath')}.",
+        }
     if not ref_abs.exists():
         return {
             "status": "no-reference-available",

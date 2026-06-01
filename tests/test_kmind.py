@@ -527,6 +527,28 @@ def test_resolve_diff_reference_rejects_multiple_refs() -> None:
             pass
 
 
+def test_resolve_diff_reference_rejects_index_path_escape() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        backup_dir = root / "backups"
+        backup_dir.mkdir()
+        escape = root / "escape.kmind"
+        _write_kmind(escape, _sample_tree())
+        index = [{"docId": "docX", "backupPath": "../escape.kmind",
+                  "createdAt": datetime.now(timezone.utc).isoformat(),
+                  "sha256Before": "sha-escape"}]
+
+        ref = K.resolve_diff_reference(backup_dir, index, "docX")
+        assert ref["status"] == "no-reference-available"
+        assert "escapes backup dir" in ref["message"]
+
+        try:
+            K.resolve_diff_reference(backup_dir, index, "docX", against_sha256="sha-escape")
+            raise AssertionError("expected ValueError for backup path escaping backup dir")
+        except ValueError as error:
+            assert "escapes backup dir" in str(error)
+
+
 # --- P2: siyuan_kmind_list_backups (read-only) ------------------------------
 #
 # Offline: list_kmind_backups is a pure helper over a backup dir + index, so it
@@ -621,6 +643,25 @@ def test_list_kmind_backups_reads_what_write_backup_wrote() -> None:
         assert entry["sha256Before"] == "shaZ"
         assert entry["source"] == "assets/map.kmind"
         assert entry["existsOnDisk"] is True
+
+
+def test_list_kmind_backups_path_escape_counts_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        backup_dir = root / "backups"
+        backup_dir.mkdir()
+        (root / "outside.kmind").write_bytes(b"{}")
+        index = [{"docId": "docX", "backupPath": "../outside.kmind",
+                  "createdAt": datetime.now(timezone.utc).isoformat(),
+                  "operation": "add-node", "sha256Before": "sha",
+                  "sizeBytes": 2, "source": "assets/map.kmind"}]
+
+        out = K.list_kmind_backups(backup_dir, index, "docX")
+
+        assert out["summary"]["count"] == 1
+        assert out["summary"]["missingFiles"] == 1
+        assert out["backups"][0]["backupPath"] == "../outside.kmind"
+        assert out["backups"][0]["existsOnDisk"] is False
 
 
 def main() -> None:
