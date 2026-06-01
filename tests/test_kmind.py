@@ -335,6 +335,174 @@ def test_backup_same_second_collision_keeps_both_files() -> None:
         assert [entry["backupPath"] for entry in index] == [first, second]
 
 
+# --- P1: siyuan_kmind_diff (read-only, style-aware) -------------------------
+#
+# All offline: diff_kmind_trees and resolve_diff_reference are pure helpers that
+# take in-memory trees / a backup dir + index, so they need no live SiYuan. The
+# siyuan_kmind_diff tool is a thin wrapper over them (it only adds SiYuan doc
+# resolution), so exercising the helpers covers the diff logic.
+
+
+def _write_kmind(path: Path, tree: dict) -> str:
+    """Write a tree as a compact .kmind file; return its sha256 (as backups store)."""
+    raw = K.dump_kmind_bytes(tree)
+    path.write_bytes(raw)
+    return K._sha256(raw)
+
+
+def test_classify_kmind_field() -> None:
+    assert K.classify_kmind_field("text") == "content"
+    assert K.classify_kmind_field("note") == "content"
+    assert K.classify_kmind_field("fillColor") == "nodeStyle"
+    assert K.classify_kmind_field("fontSize") == "nodeStyle"
+    assert K.classify_kmind_field("lineColor") == "branchLine"
+    assert K.classify_kmind_field("lineWidth") == "branchLine"
+    assert K.classify_kmind_field("expand") == "other"
+    assert K.classify_kmind_field("richText") == "other"
+
+
+def test_diff_kmind_trees_identical_is_empty() -> None:
+    tree = _sample_tree()
+    diff = K.diff_kmind_trees(K._require_root(copy.deepcopy(tree)), K._require_root(tree))
+    assert diff["added"] == [] and diff["removed"] == [] and diff["changed"] == []
+    s = diff["summary"]
+    assert (s["added"], s["removed"], s["changed"]) == (0, 0, 0)
+    assert s["branchLineChanged"] is False and s["nodeStyleChanged"] is False
+    assert s["fieldChangesByBucket"] == {"content": 0, "nodeStyle": 0, "branchLine": 0, "other": 0}
+
+
+def test_diff_kmind_trees_added_removed_changed() -> None:
+    ref_tree = _sample_tree()
+    cur_tree = copy.deepcopy(ref_tree)
+    cur_root = K._require_root(cur_tree)
+
+    # changed: u-dyn text (content) + new fillColor (nodeStyle) + lineColor (branchLine)
+    target = K.find_node_by_uid(cur_root, "u-dyn")
+    target["data"]["text"] = "<p>动力学(改)</p>"
+    target["data"]["fillColor"] = "rgb(1,2,3)"
+    target["data"]["lineColor"] = "rgb(9,9,9)"
+    # removed: leaf u-lag
+    target["children"] = [c for c in target["children"] if K.node_uid(c) != "u-lag"]
+    # added: a fresh child under u-kin
+    new_node = K.make_node("新节点")
+    K.find_node_by_uid(cur_root, "u-kin")["children"].append(new_node)
+
+    diff = K.diff_kmind_trees(K._require_root(ref_tree), cur_root)
+
+    assert [a["uid"] for a in diff["added"]] == [K.node_uid(new_node)]
+    assert [r["uid"] for r in diff["removed"]] == ["u-lag"]
+    assert [c["uid"] for c in diff["changed"]] == ["u-dyn"]
+
+    ch = diff["changed"][0]
+    assert ch["changedFields"] == {
+        "content": ["text"], "nodeStyle": ["fillColor"],
+        "branchLine": ["lineColor"], "other": [],
+    }
+    assert ch["values"]["lineColor"] == {"before": "rgb(50,100,200)", "after": "rgb(9,9,9)"}
+    assert ch["values"]["text"]["after"] == "<p>动力学(改)</p>"
+    assert ch["values"]["fillColor"] == {"before": None, "after": "rgb(1,2,3)"}
+
+    s = diff["summary"]
+    assert (s["added"], s["removed"], s["changed"]) == (1, 1, 1)
+    assert s["branchLineChanged"] is True and s["nodeStyleChanged"] is True
+    assert s["fieldChangesByBucket"] == {"content": 1, "nodeStyle": 1, "branchLine": 1, "other": 0}
+    # added/removed carry a locating path.
+    assert diff["added"][0]["path"][-1] == "新节点"
+    assert diff["removed"][0]["text"] == "拉格朗日"
+
+
+def test_resolve_diff_reference_latest_backup_reports_selection() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        backup_dir = Path(tmp)
+        old_sha = _write_kmind(backup_dir / "old.kmind", _sample_tree())
+        marked = _sample_tree()
+        marked["root"]["data"]["text"] = "<p>MARKER</p>"
+        new_sha = _write_kmind(backup_dir / "new.kmind", marked)
+        base = datetime.now(timezone.utc) - timedelta(hours=2)
+        index = [
+            {"docId": "docX", "backupPath": "old.kmind", "operation": "add-node",
+             "createdAt": base.isoformat(), "sha256Before": old_sha, "sizeBytes": 1},
+            {"docId": "docX", "backupPath": "new.kmind", "operation": "style-node",
+             "createdAt": (base + timedelta(hours=1)).isoformat(), "sha256Before": new_sha, "sizeBytes": 1},
+        ]
+        ref = K.resolve_diff_reference(backup_dir, index, "docX")
+        assert ref["status"] == "ok"
+        # Picked the newest by createdAt, not by file/index order, and reported it.
+        report = ref["reference"]
+        assert report["kind"] == "latest-backup"
+        assert report["backupPath"] == "new.kmind"
+        assert report["createdAt"] == index[1]["createdAt"]
+        assert report["sha256Before"] == new_sha and report["sha256"] == new_sha
+        assert K.node_plain_text(ref["root"]) == "MARKER"
+
+
+def test_resolve_diff_reference_no_reference_available() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        ref = K.resolve_diff_reference(Path(tmp), [], "docX")
+        assert ref["status"] == "no-reference-available"
+        assert ref["root"] is None and ref["reference"] is None
+        assert "backup" in ref["message"].lower()
+
+
+def test_resolve_diff_reference_explicit_file() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        ref_file = Path(tmp) / "other.kmind"
+        sha = _write_kmind(ref_file, _sample_tree())
+        ref = K.resolve_diff_reference(Path(tmp), [], "docX", against_file=str(ref_file))
+        assert ref["status"] == "ok"
+        assert ref["reference"] == {
+            "kind": "file", "filePath": str(ref_file), "sha256": sha, "sizeBytes": ref_file.stat().st_size,
+        }
+        assert K.node_uid(ref["root"]) == "u-root"
+
+
+def test_resolve_diff_reference_by_sha() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        backup_dir = Path(tmp)
+        sha = _write_kmind(backup_dir / "b.kmind", _sample_tree())
+        index = [{"docId": "docX", "backupPath": "b.kmind", "operation": "add-node",
+                  "createdAt": datetime.now(timezone.utc).isoformat(), "sha256Before": sha, "sizeBytes": 1}]
+        ref = K.resolve_diff_reference(backup_dir, index, "docX", against_sha256=sha)
+        assert ref["status"] == "ok" and ref["reference"]["kind"] == "sha256"
+        assert ref["reference"]["sha256Before"] == sha
+        # Unknown sha must error, not silently fall back.
+        try:
+            K.resolve_diff_reference(backup_dir, index, "docX", against_sha256="deadbeef")
+            raise AssertionError("expected ValueError for unknown sha256")
+        except ValueError:
+            pass
+
+
+def test_resolve_diff_reference_by_backup_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        backup_dir = Path(tmp)
+        _write_kmind(backup_dir / "b.kmind", _sample_tree())
+        index = [{"docId": "docX", "backupPath": "b.kmind", "operation": "add-node",
+                  "createdAt": datetime.now(timezone.utc).isoformat(), "sha256Before": "x", "sizeBytes": 1}]
+        ref = K.resolve_diff_reference(backup_dir, index, "docX", against_backup_path="b.kmind")
+        assert ref["status"] == "ok" and ref["reference"]["kind"] == "backup-path"
+        assert ref["reference"]["backupPath"] == "b.kmind"
+        assert ref["reference"]["operation"] == "add-node"
+        # Missing backup file must raise, not silently diff against nothing.
+        try:
+            K.resolve_diff_reference(backup_dir, index, "docX", against_backup_path="missing.kmind")
+            raise AssertionError("expected FileNotFoundError for missing backup")
+        except FileNotFoundError:
+            pass
+
+
+def test_resolve_diff_reference_rejects_multiple_refs() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            K.resolve_diff_reference(
+                Path(tmp), [], "docX",
+                against_backup_path="b.kmind", against_file="x.kmind",
+            )
+            raise AssertionError("expected ValueError for multiple explicit references")
+        except ValueError:
+            pass
+
+
 def main() -> None:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in tests:

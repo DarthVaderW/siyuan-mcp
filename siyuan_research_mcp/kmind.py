@@ -47,6 +47,22 @@ SAFE_NODE_STYLE_FIELDS = {
 # Branch/connector line styles. Only touched when line_style is given explicitly.
 LINE_STYLE_FIELDS = {"lineColor", "lineWidth"}
 
+# Node fields that carry content/meaning (vs. styling or pure view state). Used
+# by siyuan_kmind_diff to bucket changed fields; any changed field that is not a
+# node-style, branch-line, or content field falls into the "other" bucket.
+CONTENT_FIELDS = {
+    "text",
+    "note",
+    "hyperlink",
+    "hyperlinkTitle",
+    "image",
+    "imageTitle",
+    "imageSize",
+    "icon",
+    "tag",
+    "generalization",
+}
+
 # Retention limits for the KMind backup directory.
 MAX_BACKUPS_PER_DOC = 20
 MAX_BACKUP_AGE_DAYS = 30
@@ -414,6 +430,216 @@ def write_backup(
     return backup_name
 
 
+# --- Diff (read-only, style-aware) -------------------------------------------
+
+
+def classify_kmind_field(field: str) -> str:
+    """Bucket a node-data field name: content / nodeStyle / branchLine / other."""
+    if field in LINE_STYLE_FIELDS:
+        return "branchLine"
+    if field in SAFE_NODE_STYLE_FIELDS:
+        return "nodeStyle"
+    if field in CONTENT_FIELDS:
+        return "content"
+    return "other"
+
+
+def _load_kmind_root(asset_abs: str | Path) -> tuple[dict[str, Any], str, int]:
+    data, sha256, size_bytes = load_kmind(asset_abs)
+    return _require_root(data), sha256, size_bytes
+
+
+def _index_nodes_by_uid(root: dict[str, Any]) -> tuple[dict[str, tuple[dict[str, Any], list[str]]], int]:
+    """{uid: (node, ancestor_texts)} for every uid-bearing node; count the rest."""
+    out: dict[str, tuple[dict[str, Any], list[str]]] = {}
+    no_uid = 0
+    for node, _depth, path_texts in walk_kmind_nodes(root):
+        uid = node_uid(node)
+        if uid is None:
+            no_uid += 1
+            continue
+        out[uid] = (node, [p for p in path_texts if p])
+    return out, no_uid
+
+
+def diff_kmind_trees(ref_root: dict[str, Any], cur_root: dict[str, Any]) -> dict[str, Any]:
+    """Pure node-level diff (reference -> current), pairing nodes by uid.
+
+    Returns ``added`` / ``removed`` / ``changed`` plus a ``summary``. Each changed
+    node lists its changed field names bucketed into content / nodeStyle /
+    branchLine / other, with the before/after value of each changed field, so
+    style and branch-line changes are unmissable. No live SiYuan, no IO.
+    """
+    ref_nodes, ref_no_uid = _index_nodes_by_uid(ref_root)
+    cur_nodes, cur_no_uid = _index_nodes_by_uid(cur_root)
+    ref_uids, cur_uids = set(ref_nodes), set(cur_nodes)
+
+    def entry(uid: str, table: dict[str, tuple[dict[str, Any], list[str]]]) -> dict[str, Any]:
+        node, ancestors = table[uid]
+        text = node_plain_text(node)
+        return {"uid": uid, "text": text, "path": ancestors + [text]}
+
+    added = [entry(uid, cur_nodes) for uid in cur_uids - ref_uids]
+    removed = [entry(uid, ref_nodes) for uid in ref_uids - cur_uids]
+
+    field_changes = {"content": 0, "nodeStyle": 0, "branchLine": 0, "other": 0}
+    changed: list[dict[str, Any]] = []
+    for uid in ref_uids & cur_uids:
+        ref_data = ref_nodes[uid][0].get("data") or {}
+        cur_data = cur_nodes[uid][0].get("data") or {}
+        fields = sorted(
+            key for key in set(ref_data) | set(cur_data)
+            if ref_data.get(key) != cur_data.get(key)
+        )
+        if not fields:
+            continue
+        buckets: dict[str, list[str]] = {"content": [], "nodeStyle": [], "branchLine": [], "other": []}
+        values: dict[str, dict[str, Any]] = {}
+        for field in fields:
+            bucket = classify_kmind_field(field)
+            buckets[bucket].append(field)
+            field_changes[bucket] += 1
+            values[field] = {"before": ref_data.get(field), "after": cur_data.get(field)}
+        item = entry(uid, cur_nodes)
+        item["changedFields"] = buckets
+        item["values"] = values
+        changed.append(item)
+
+    for group in (added, removed, changed):
+        group.sort(key=lambda e: e["uid"])
+
+    summary = {
+        "added": len(added),
+        "removed": len(removed),
+        "changed": len(changed),
+        "fieldChangesByBucket": field_changes,
+        "branchLineChanged": field_changes["branchLine"] > 0,
+        "nodeStyleChanged": field_changes["nodeStyle"] > 0,
+    }
+    if ref_no_uid or cur_no_uid:
+        summary["nodesSkippedNoUid"] = {"reference": ref_no_uid, "current": cur_no_uid}
+    return {"added": added, "removed": removed, "changed": changed, "summary": summary}
+
+
+def _latest_backup_entry(index: list[dict[str, Any]], doc_id: str) -> dict[str, Any] | None:
+    entries = [e for e in index if e.get("docId") == doc_id and e.get("backupPath")]
+    if not entries:
+        return None
+    return max(entries, key=lambda e: e.get("createdAt", ""))
+
+
+def _backup_reference_report(
+    kind: str, entry: dict[str, Any] | None, ref_abs: Path, sha256: str, size_bytes: int
+) -> dict[str, Any]:
+    entry = entry or {}
+    return {
+        "kind": kind,
+        "backupPath": entry.get("backupPath") or ref_abs.name,
+        "createdAt": entry.get("createdAt"),
+        "operation": entry.get("operation"),
+        "sha256Before": entry.get("sha256Before"),
+        "sha256": sha256,  # actual content sha of the reference we loaded
+        "sizeBytes": size_bytes,
+    }
+
+
+def resolve_diff_reference(
+    backup_dir: Path,
+    index: list[dict[str, Any]],
+    doc_id: str,
+    against_backup_path: str | None = None,
+    against_sha256: str | None = None,
+    against_file: str | None = None,
+) -> dict[str, Any]:
+    """Resolve the reference KMind tree for a diff (read-only).
+
+    Precedence: at most one explicit reference (against_file / against_backup_path
+    / against_sha256), else the latest backup for ``doc_id``. Returns
+    ``{"status": "ok", "root": <root>, "reference": {...}}`` or, when nothing is
+    available, ``{"status": "no-reference-available", "root": None,
+    "reference": None, "message": ...}`` — it never silently diffs against
+    nothing. The reference report always names the selected source.
+    """
+    explicit = [x for x in (against_backup_path, against_sha256, against_file) if x]
+    if len(explicit) > 1:
+        raise ValueError(
+            "Provide at most one explicit reference: against_backup_path, "
+            "against_sha256, or against_file."
+        )
+
+    if against_file:
+        ref_abs = Path(against_file)
+        if not ref_abs.exists():
+            raise FileNotFoundError(f"Reference .kmind file not found: {against_file}")
+        root, sha256, size_bytes = _load_kmind_root(ref_abs)
+        return {
+            "status": "ok",
+            "root": root,
+            "reference": {
+                "kind": "file",
+                "filePath": str(ref_abs),
+                "sha256": sha256,
+                "sizeBytes": size_bytes,
+            },
+        }
+
+    if against_backup_path:
+        name = Path(against_backup_path).name
+        ref_abs = backup_dir / name
+        if not ref_abs.exists():
+            raise FileNotFoundError(f"Backup not found in backup dir: {against_backup_path}")
+        entry = next((e for e in index if e.get("backupPath") == name), None)
+        root, sha256, size_bytes = _load_kmind_root(ref_abs)
+        return {
+            "status": "ok",
+            "root": root,
+            "reference": _backup_reference_report("backup-path", entry, ref_abs, sha256, size_bytes),
+        }
+
+    if against_sha256:
+        entry = next(
+            (e for e in index if e.get("sha256Before") == against_sha256 and e.get("docId") == doc_id),
+            None,
+        )
+        if not entry:
+            raise ValueError(f"No backup with sha256Before={against_sha256} for document {doc_id}.")
+        ref_abs = backup_dir / entry["backupPath"]
+        if not ref_abs.exists():
+            raise FileNotFoundError(f"Backup file missing on disk: {entry['backupPath']}")
+        root, sha256, size_bytes = _load_kmind_root(ref_abs)
+        return {
+            "status": "ok",
+            "root": root,
+            "reference": _backup_reference_report("sha256", entry, ref_abs, sha256, size_bytes),
+        }
+
+    entry = _latest_backup_entry(index, doc_id)
+    if not entry:
+        return {
+            "status": "no-reference-available",
+            "root": None,
+            "reference": None,
+            "message": (
+                "No backup found for this document. Pass against_backup_path, "
+                "against_sha256, or against_file to diff against an explicit reference."
+            ),
+        }
+    ref_abs = backup_dir / entry["backupPath"]
+    if not ref_abs.exists():
+        return {
+            "status": "no-reference-available",
+            "root": None,
+            "reference": None,
+            "message": f"Latest backup file is missing on disk: {entry['backupPath']}.",
+        }
+    root, sha256, size_bytes = _load_kmind_root(ref_abs)
+    return {
+        "status": "ok",
+        "root": root,
+        "reference": _backup_reference_report("latest-backup", entry, ref_abs, sha256, size_bytes),
+    }
+
+
 # --- Write guard (optimistic concurrency) ------------------------------------
 
 
@@ -711,3 +937,59 @@ def siyuan_kmind_validate(
         "nodeCount": count_nodes(root) if valid else 0,
         "topLevelKeys": sorted(data.keys()) if isinstance(data, dict) else [],
     }
+
+
+@mcp.tool()
+def siyuan_kmind_diff(
+    path: str | None = None,
+    notebook: str | None = None,
+    doc_id: str | None = None,
+    against_backup_path: str | None = None,
+    against_sha256: str | None = None,
+    against_file: str | None = None,
+) -> dict[str, Any]:
+    """Diff a KMind file against a reference version (read-only; no write, no backup).
+
+    The reference defaults to the latest backup of this document, and the result
+    always reports which reference was selected (backupPath / createdAt /
+    sha256Before). Pass at most one explicit reference instead:
+    against_backup_path (a backup file name), against_sha256 (matches a backup's
+    sha256Before), or against_file (another .kmind file). If no reference exists,
+    returns status="no-reference-available" instead of silently diffing against
+    nothing.
+
+    Nodes are paired by uid. Returns added / removed / changed; each changed node
+    lists its changed fields bucketed into content / nodeStyle /
+    branchLine (lineColor, lineWidth) / other, with before/after values.
+    """
+    meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
+    asset_abs = Path(meta["assetAbsPath"])
+    if not meta["exists"] or not asset_abs.exists():
+        raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
+    cur_root, cur_sha256, cur_size = _load_kmind_root(asset_abs)
+
+    backup_dir = _backup_dir(find_siyuan_data_dir())
+    index = _load_backup_index(backup_dir)
+    ref = resolve_diff_reference(
+        backup_dir,
+        index,
+        meta["docId"],
+        against_backup_path=against_backup_path,
+        against_sha256=against_sha256,
+        against_file=against_file,
+    )
+
+    result: dict[str, Any] = {
+        "docId": meta["docId"],
+        "title": meta["title"],
+        "status": ref["status"],
+        "current": {"sha256": cur_sha256, "sizeBytes": cur_size},
+        "reference": ref["reference"],
+    }
+    if ref["status"] != "ok":
+        result["message"] = ref.get("message")
+        return result
+
+    result["identical"] = (ref["reference"] or {}).get("sha256") == cur_sha256
+    result.update(diff_kmind_trees(ref["root"], cur_root))
+    return result
