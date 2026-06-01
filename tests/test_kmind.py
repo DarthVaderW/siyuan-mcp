@@ -742,6 +742,22 @@ def test_resolve_restore_source_missing_and_escaping() -> None:
             pass
 
 
+def test_resolve_restore_source_rejects_corrupt_backup_hash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        backup_dir = Path(tmp)
+        _write_kmind(backup_dir / "g.kmind", _sample_tree())
+        index = [{"docId": "docA", "backupPath": "g.kmind", "operation": "add-node",
+                  "createdAt": "2026-06-01T00:00:00+00:00",
+                  "sha256Before": "not-the-file-sha", "sizeBytes": 1,
+                  "source": "assets/x.kmind"}]
+
+        try:
+            K.resolve_restore_source(backup_dir, index, "docA", backup_path="g.kmind")
+            raise AssertionError("expected ValueError for backup hash mismatch")
+        except ValueError as error:
+            assert "hash mismatch" in str(error)
+
+
 def _restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
     """data_dir with a good docA backup on disk + index, and a different current asset."""
     data_dir = Path(tmp)

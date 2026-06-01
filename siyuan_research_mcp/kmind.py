@@ -887,12 +887,19 @@ def resolve_restore_source(
         raise FileNotFoundError(f"Backup file missing on disk: {entry.get('backupPath')!r}.")
 
     raw = backup_abs.read_bytes()
+    backup_sha256 = _sha256(raw)
+    recorded_sha256 = entry.get("sha256Before")
+    if recorded_sha256 and recorded_sha256 != backup_sha256:
+        raise ValueError(
+            f"Backup content hash mismatch for {entry.get('backupPath')!r}: "
+            f"index records {recorded_sha256}, file is {backup_sha256}."
+        )
     root = _require_root(json.loads(raw.decode("utf-8")))  # validate restorable JSON + root
     return {
         "backupAbs": backup_abs,
         "backupRaw": raw,
         "backupRoot": root,
-        "backupSha256": _sha256(raw),
+        "backupSha256": backup_sha256,
         "backupSizeBytes": len(raw),
         "entry": {
             "backupPath": entry.get("backupPath"),
