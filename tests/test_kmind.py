@@ -147,8 +147,16 @@ def _assert_no_line_field_changes(root: dict, before: dict, exempt: set | None =
         if uid in exempt:
             continue
         data = node.get("data", {})
-        prior = before.get(uid, {})
+        if uid not in before:
+            for field in K.LINE_STYLE_FIELDS:
+                assert field not in data, f"new node {uid} gained line field {field!r}"
+            continue
+        prior = before[uid]
         for field in K.LINE_STYLE_FIELDS:
+            assert (field in data) == (field in prior), (
+                f"line field {field!r} presence on node {uid} changed: "
+                f"{field in prior!r} -> {field in data!r}"
+            )
             assert data.get(field) == prior.get(field), (
                 f"line field {field!r} on node {uid} changed: "
                 f"{prior.get(field)!r} -> {data.get(field)!r}"
