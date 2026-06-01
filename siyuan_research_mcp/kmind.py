@@ -489,7 +489,7 @@ def diff_kmind_trees(ref_root: dict[str, Any], cur_root: dict[str, Any]) -> dict
         cur_data = cur_nodes[uid][0].get("data") or {}
         fields = sorted(
             key for key in set(ref_data) | set(cur_data)
-            if ref_data.get(key) != cur_data.get(key)
+            if (key in ref_data) != (key in cur_data) or ref_data.get(key) != cur_data.get(key)
         )
         if not fields:
             continue
@@ -499,7 +499,12 @@ def diff_kmind_trees(ref_root: dict[str, Any], cur_root: dict[str, Any]) -> dict
             bucket = classify_kmind_field(field)
             buckets[bucket].append(field)
             field_changes[bucket] += 1
-            values[field] = {"before": ref_data.get(field), "after": cur_data.get(field)}
+            values[field] = {
+                "before": ref_data.get(field),
+                "after": cur_data.get(field),
+                "beforePresent": field in ref_data,
+                "afterPresent": field in cur_data,
+            }
         item = entry(uid, cur_nodes)
         item["changedFields"] = buckets
         item["values"] = values

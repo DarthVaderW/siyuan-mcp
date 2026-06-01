@@ -398,9 +398,15 @@ def test_diff_kmind_trees_added_removed_changed() -> None:
         "content": ["text"], "nodeStyle": ["fillColor"],
         "branchLine": ["lineColor"], "other": [],
     }
-    assert ch["values"]["lineColor"] == {"before": "rgb(50,100,200)", "after": "rgb(9,9,9)"}
+    assert ch["values"]["lineColor"] == {
+        "before": "rgb(50,100,200)", "after": "rgb(9,9,9)",
+        "beforePresent": True, "afterPresent": True,
+    }
     assert ch["values"]["text"]["after"] == "<p>动力学(改)</p>"
-    assert ch["values"]["fillColor"] == {"before": None, "after": "rgb(1,2,3)"}
+    assert ch["values"]["fillColor"] == {
+        "before": None, "after": "rgb(1,2,3)",
+        "beforePresent": False, "afterPresent": True,
+    }
 
     s = diff["summary"]
     assert (s["added"], s["removed"], s["changed"]) == (1, 1, 1)
@@ -409,6 +415,24 @@ def test_diff_kmind_trees_added_removed_changed() -> None:
     # added/removed carry a locating path.
     assert diff["added"][0]["path"][-1] == "新节点"
     assert diff["removed"][0]["text"] == "拉格朗日"
+
+
+def test_diff_kmind_trees_detects_field_presence_change() -> None:
+    ref_tree = _sample_tree()
+    cur_tree = copy.deepcopy(ref_tree)
+    cur_root = K._require_root(cur_tree)
+    K.find_node_by_uid(cur_root, "u-ik")["data"]["lineColor"] = None
+
+    diff = K.diff_kmind_trees(K._require_root(ref_tree), cur_root)
+
+    assert [c["uid"] for c in diff["changed"]] == ["u-ik"]
+    ch = diff["changed"][0]
+    assert ch["changedFields"]["branchLine"] == ["lineColor"]
+    assert ch["values"]["lineColor"] == {
+        "before": None, "after": None,
+        "beforePresent": False, "afterPresent": True,
+    }
+    assert diff["summary"]["branchLineChanged"] is True
 
 
 def test_resolve_diff_reference_latest_backup_reports_selection() -> None:
