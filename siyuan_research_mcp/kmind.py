@@ -430,6 +430,50 @@ def write_backup(
     return backup_name
 
 
+def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: str) -> dict[str, Any]:
+    """Summarize the backups recorded for one document, newest first (read-only).
+
+    Pure: operates on a given backup dir + index, so it needs no live SiYuan.
+    Each backup reports backupPath / createdAt / operation / sha256Before /
+    sizeBytes / source / existsOnDisk. The summary reports count, totalSizeBytes
+    (sum of recorded sizeBytes across listed backups), missingFiles (entries whose
+    file is gone from disk), and backupDir. A document with no backups yields an
+    empty list and a zeroed summary — never an error.
+    """
+    backups: list[dict[str, Any]] = []
+    missing_files = 0
+    total_size = 0
+    for entry in index:
+        if entry.get("docId") != doc_id:
+            continue
+        backup_path = entry.get("backupPath")
+        exists = bool(backup_path) and (backup_dir / backup_path).exists()
+        if not exists:
+            missing_files += 1
+        total_size += int(entry.get("sizeBytes") or 0)
+        backups.append(
+            {
+                "backupPath": backup_path,
+                "createdAt": entry.get("createdAt"),
+                "operation": entry.get("operation"),
+                "sha256Before": entry.get("sha256Before"),
+                "sizeBytes": entry.get("sizeBytes"),
+                "source": entry.get("source"),
+                "existsOnDisk": exists,
+            }
+        )
+    backups.sort(key=lambda e: (e.get("createdAt") or "", e.get("backupPath") or ""), reverse=True)
+    return {
+        "backups": backups,
+        "summary": {
+            "count": len(backups),
+            "totalSizeBytes": total_size,
+            "missingFiles": missing_files,
+            "backupDir": str(backup_dir),
+        },
+    }
+
+
 # --- Diff (read-only, style-aware) -------------------------------------------
 
 
@@ -998,3 +1042,29 @@ def siyuan_kmind_diff(
     result["identical"] = (ref["reference"] or {}).get("sha256") == cur_sha256
     result.update(diff_kmind_trees(ref["root"], cur_root))
     return result
+
+
+@mcp.tool()
+def siyuan_kmind_list_backups(
+    path: str | None = None,
+    notebook: str | None = None,
+    doc_id: str | None = None,
+) -> dict[str, Any]:
+    """List the KMind backups recorded for a document, newest first (read-only).
+
+    Locate the document by doc_id (preferred) or path/notebook. Reads the backup
+    index under <dataDir>/storage/codex-kmind-backups/ and returns every backup
+    for this document with backupPath / createdAt / operation / sha256Before /
+    sizeBytes / source / existsOnDisk, plus a summary (count, totalSizeBytes,
+    missingFiles, backupDir). No write, no backup. If the document has no
+    backups, returns an empty list with a zeroed summary, not an error.
+    """
+    meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
+    backup_dir = _backup_dir(find_siyuan_data_dir())
+    index = _load_backup_index(backup_dir)
+    return {
+        "docId": meta["docId"],
+        "title": meta["title"],
+        "assetRelPath": meta["assetRelPath"],
+        **list_kmind_backups(backup_dir, index, meta["docId"]),
+    }

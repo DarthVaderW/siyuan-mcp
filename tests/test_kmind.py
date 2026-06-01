@@ -527,6 +527,102 @@ def test_resolve_diff_reference_rejects_multiple_refs() -> None:
             pass
 
 
+# --- P2: siyuan_kmind_list_backups (read-only) ------------------------------
+#
+# Offline: list_kmind_backups is a pure helper over a backup dir + index, so it
+# needs no live SiYuan. The siyuan_kmind_list_backups tool only adds doc
+# resolution on top of it.
+
+
+def test_list_kmind_backups_newest_first_and_summary() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        backup_dir = Path(tmp)
+        base = datetime.now(timezone.utc) - timedelta(hours=3)
+        # docA: a1 present on disk, a2 newer but its file is missing; docB unrelated.
+        (backup_dir / "a1.kmind").write_bytes(b"{}")
+        (backup_dir / "b1.kmind").write_bytes(b"{}")
+        index = [
+            {"source": "assets/a.kmind", "docId": "docA", "backupPath": "a1.kmind",
+             "operation": "add-node", "createdAt": base.isoformat(),
+             "sha256Before": "sha-a1", "sizeBytes": 10},
+            {"source": "assets/a.kmind", "docId": "docA", "backupPath": "a2.kmind",
+             "operation": "style-node", "createdAt": (base + timedelta(hours=1)).isoformat(),
+             "sha256Before": "sha-a2", "sizeBytes": 20},
+            {"source": "assets/b.kmind", "docId": "docB", "backupPath": "b1.kmind",
+             "operation": "add-node", "createdAt": base.isoformat(),
+             "sha256Before": "sha-b1", "sizeBytes": 100},
+        ]
+        out = K.list_kmind_backups(backup_dir, index, "docA")
+
+        # Only docA, newest first (a2 is newer than a1).
+        assert [b["backupPath"] for b in out["backups"]] == ["a2.kmind", "a1.kmind"]
+        # The newest entry carries exactly the required fields; its file is gone.
+        assert out["backups"][0] == {
+            "backupPath": "a2.kmind", "createdAt": index[1]["createdAt"],
+            "operation": "style-node", "sha256Before": "sha-a2", "sizeBytes": 20,
+            "source": "assets/a.kmind", "existsOnDisk": False,
+        }
+        assert out["backups"][1]["existsOnDisk"] is True
+        # docB excluded; total = 10 + 20; a2's file missing -> missingFiles == 1.
+        assert out["summary"] == {
+            "count": 2, "totalSizeBytes": 30, "missingFiles": 1,
+            "backupDir": str(backup_dir),
+        }
+
+
+def test_list_kmind_backups_empty_is_not_an_error() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        backup_dir = Path(tmp)
+        out = K.list_kmind_backups(backup_dir, [], "docMissing")
+        assert out["backups"] == []
+        assert out["summary"] == {
+            "count": 0, "totalSizeBytes": 0, "missingFiles": 0,
+            "backupDir": str(backup_dir),
+        }
+
+
+def test_list_kmind_backups_filters_by_doc_id() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        backup_dir = Path(tmp)
+        (backup_dir / "x.kmind").write_bytes(b"{}")
+        index = [
+            {"docId": "docA", "backupPath": "x.kmind", "operation": "add-node",
+             "createdAt": datetime.now(timezone.utc).isoformat(),
+             "sha256Before": "s", "sizeBytes": 5, "source": "assets/x.kmind"},
+        ]
+        # An unrelated doc -> empty list, no error.
+        assert K.list_kmind_backups(backup_dir, index, "docB")["summary"]["count"] == 0
+        # The matching doc -> one entry, present on disk.
+        out_a = K.list_kmind_backups(backup_dir, index, "docA")
+        assert [b["backupPath"] for b in out_a["backups"]] == ["x.kmind"]
+        assert out_a["backups"][0]["existsOnDisk"] is True
+        assert out_a["summary"]["missingFiles"] == 0
+
+
+def test_list_kmind_backups_reads_what_write_backup_wrote() -> None:
+    """End-to-end: the lister must read back exactly what write_backup recorded."""
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        asset = data_dir / "assets" / "map.kmind"
+        asset.parent.mkdir()
+        asset.write_bytes(b'{"root":{"data":{"text":"<p>x</p>"},"children":[]}}')
+        name = K.write_backup(
+            data_dir=data_dir, asset_abs=asset, asset_rel="assets/map.kmind",
+            doc_id="docZ", operation="add-node", sha256_before="shaZ",
+            size_bytes=asset.stat().st_size, timestamp="20260601-120000-000000",
+        )
+        backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        out = K.list_kmind_backups(backup_dir, K._load_backup_index(backup_dir), "docZ")
+        assert out["summary"]["count"] == 1 and out["summary"]["missingFiles"] == 0
+        assert out["summary"]["totalSizeBytes"] == asset.stat().st_size
+        entry = out["backups"][0]
+        assert entry["backupPath"] == name
+        assert entry["operation"] == "add-node"
+        assert entry["sha256Before"] == "shaZ"
+        assert entry["source"] == "assets/map.kmind"
+        assert entry["existsOnDisk"] is True
+
+
 def main() -> None:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in tests:
