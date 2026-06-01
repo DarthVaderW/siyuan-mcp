@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import tempfile
@@ -81,6 +82,172 @@ def test_make_node() -> None:
     assert node["data"]["color"] == "blue"
     assert node["children"] == []
     assert re.match(r"^kmind-node-", node["data"]["uid"])
+
+
+# --- P0: strict "untouched subtree unchanged" regression --------------------
+#
+# These lock the core safety invariant the rest of the KMind safety layer rests
+# on (docs/KMIND_ASSESSMENT.md, converged spec): an edit to one node must never
+# silently alter an unrelated node's data, and must never repaint another
+# branch's connector line. They are pure in-memory (no live SiYuan kernel,
+# no disk, no network) and mirror the exact mutate sequences of the
+# siyuan_kmind_add_node / siyuan_kmind_style_node tools using the real kmind
+# helpers. If those tool closures change, update these to match.
+
+
+def _sample_tree() -> dict:
+    """A small KMind doc with several hand-styled branches (distinct lineColors)."""
+    return {
+        "root": {
+            "data": {"text": "<p>论文梳理</p>", "uid": "u-root", "expand": True},
+            "children": [
+                {
+                    "data": {
+                        "text": "<p>运动学</p>", "uid": "u-kin",
+                        "fillColor": "rgb(255,255,255)",
+                        "lineColor": "rgb(237,185,81)",  # hand-styled yellow branch
+                        "lineWidth": 2,
+                        "fontSize": 16,
+                    },
+                    "children": [
+                        {"data": {"text": "<p>正运动学</p>", "uid": "u-fk",
+                                  "lineColor": "rgb(237,185,81)"}, "children": []},
+                        {"data": {"text": "<p>逆运动学</p>", "uid": "u-ik"}, "children": []},
+                    ],
+                },
+                {
+                    "data": {"text": "<p>动力学</p>", "uid": "u-dyn",
+                             "lineColor": "rgb(50,100,200)", "color": "rgb(0,0,0)"},
+                    "children": [
+                        {"data": {"text": "<p>拉格朗日</p>", "uid": "u-lag"}, "children": []},
+                    ],
+                },
+            ],
+        }
+    }
+
+
+def _snapshot_data_by_uid(root: dict) -> dict:
+    """{uid: deepcopy(node data)} for every node, for byte-for-byte comparison."""
+    return {
+        K.node_uid(n): copy.deepcopy(n.get("data", {}))
+        for n, _d, _p in K.walk_kmind_nodes(root)
+        if K.node_uid(n)
+    }
+
+
+def _assert_no_line_field_changes(root: dict, before: dict, exempt: set | None = None) -> None:
+    """Assert no node's lineColor/lineWidth differs from `before` (except `exempt`).
+
+    New nodes (uid absent from `before`) must carry no line fields at all.
+    """
+    exempt = exempt or set()
+    for node, _d, _p in K.walk_kmind_nodes(root):
+        uid = K.node_uid(node)
+        if uid in exempt:
+            continue
+        data = node.get("data", {})
+        prior = before.get(uid, {})
+        for field in K.LINE_STYLE_FIELDS:
+            assert data.get(field) == prior.get(field), (
+                f"line field {field!r} on node {uid} changed: "
+                f"{prior.get(field)!r} -> {data.get(field)!r}"
+            )
+
+
+def test_add_node_leaves_existing_subtree_unchanged() -> None:
+    """add_node must not alter any pre-existing node's data, nor add line style."""
+    data = _sample_tree()
+    root = K._require_root(data)
+    before = _snapshot_data_by_uid(root)
+
+    # Mirror siyuan_kmind_add_node's mutate(): locate parent, build the node
+    # (with children), append under the parent. No existing node is touched.
+    parent = K._locate_parent(root, "u-kin", None)
+    new_node = K.make_node("微分运动学", {"fillColor": "rgb(200,200,200)"})
+    for child_text in ["雅可比", "奇异性"]:
+        new_node["children"].append(K.make_node(child_text))
+    parent.setdefault("children", []).append(new_node)
+
+    # (a) every pre-existing node's data is byte-for-byte identical.
+    after = {K.node_uid(n): n.get("data", {}) for n, _d, _p in K.walk_kmind_nodes(root)}
+    for uid, snapshot in before.items():
+        assert after[uid] == snapshot, f"existing node {uid} data changed"
+
+    # (b) no node anywhere gained/changed lineColor or lineWidth; the new node
+    #     and its children are created unstyled (no line fields).
+    _assert_no_line_field_changes(root, before)
+    assert "lineColor" not in new_node["data"] and "lineWidth" not in new_node["data"]
+
+    # The new node was appended last under the chosen parent and nothing else moved.
+    assert K.node_uid(parent["children"][-1]) == K.node_uid(new_node)
+    assert K.count_nodes(root) == len(before) + 3  # new node + its 2 children
+
+
+def test_style_node_changes_only_declared_fields_on_target() -> None:
+    """style_node (node_style only) must change only the target's declared fields."""
+    data = _sample_tree()
+    root = K._require_root(data)
+    before = _snapshot_data_by_uid(root)
+    target_uid = "u-dyn"
+
+    # Mirror siyuan_kmind_style_node's mutate() with node_style only (no line_style).
+    target = K._locate_target(root, target_uid, None)
+    node_style = {"fillColor": "rgb(255,0,0)", "fontSize": 22}
+    changed = K.apply_node_style(target["data"], node_style, None)
+    assert set(changed) == set(node_style)
+
+    after = _snapshot_data_by_uid(root)
+    # (a) every non-target node is byte-for-byte identical.
+    for uid, snapshot in before.items():
+        if uid == target_uid:
+            continue
+        assert after[uid] == snapshot, f"non-target node {uid} changed"
+
+    # (c) the target changed only the declared fields.
+    diff = {
+        k for k in set(before[target_uid]) | set(after[target_uid])
+        if before[target_uid].get(k) != after[target_uid].get(k)
+    }
+    assert diff == set(node_style), diff
+
+    # (b) with no line_style, no node anywhere (incl. the target) changed line fields.
+    _assert_no_line_field_changes(root, before)
+
+
+def test_style_node_line_style_does_not_repaint_siblings() -> None:
+    """An explicit line_style on one node must not repaint any other branch."""
+    data = _sample_tree()
+    root = K._require_root(data)
+    before = _snapshot_data_by_uid(root)
+    target_uid = "u-fk"  # currently yellow rgb(237,185,81)
+
+    target = K._locate_target(root, target_uid, None)
+    node_style = {"color": "rgb(10,20,30)"}
+    line_style = {"lineColor": "rgb(0,0,255)", "lineWidth": 4}
+    changed = K.apply_node_style(target["data"], node_style, line_style)
+    assert set(changed) == set(node_style) | set(line_style)
+
+    after = _snapshot_data_by_uid(root)
+    # (a) every non-target node is byte-for-byte identical.
+    for uid, snapshot in before.items():
+        if uid == target_uid:
+            continue
+        assert after[uid] == snapshot, f"non-target node {uid} changed"
+
+    # (c) only the target's declared fields changed.
+    diff = {
+        k for k in set(before[target_uid]) | set(after[target_uid])
+        if before[target_uid].get(k) != after[target_uid].get(k)
+    }
+    assert diff == set(node_style) | set(line_style), diff
+
+    # (b) only the target's line fields changed; sibling branches keep their lines.
+    _assert_no_line_field_changes(root, before, exempt={target_uid})
+    assert after[target_uid]["lineColor"] == "rgb(0,0,255)"
+    assert after[target_uid]["lineWidth"] == 4
+    assert after["u-kin"]["lineColor"] == "rgb(237,185,81)"
+    assert after["u-dyn"]["lineColor"] == "rgb(50,100,200)"
 
 
 def test_backup_retention_per_doc_count() -> None:
