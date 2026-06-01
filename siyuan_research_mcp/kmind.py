@@ -833,6 +833,167 @@ def _locate_target(
     raise ValueError("Provide node_uid or node_text.")
 
 
+# --- Restore (write, dry-run-first) ------------------------------------------
+
+
+def resolve_restore_source(
+    backup_dir: Path,
+    index: list[dict[str, Any]],
+    doc_id: str,
+    backup_path: str | None = None,
+    sha256_before: str | None = None,
+) -> dict[str, Any]:
+    """Resolve which backup to restore for ``doc_id`` (read-only resolution).
+
+    Requires exactly one explicit identity — ``backup_path`` or ``sha256_before``;
+    there is deliberately no "latest" default for a restore. The chosen backup
+    MUST be recorded in the index for THIS document (its ``docId`` must match) and
+    its file must stay inside the backup dir. Returns the loaded backup (raw bytes
+    + validated root + sha) and its index entry. Raises ValueError /
+    FileNotFoundError on any mismatch. No SiYuan calls.
+    """
+    provided = [x for x in (backup_path, sha256_before) if x]
+    if len(provided) != 1:
+        raise ValueError(
+            "Provide exactly one backup identity: backup_path or sha256_before "
+            "(restore has no 'latest' default)."
+        )
+
+    if backup_path:
+        name = Path(backup_path).name
+        entry = next((e for e in index if e.get("backupPath") == name), None)
+        if not entry:
+            raise ValueError(f"No backup named {name!r} recorded in the index.")
+    else:
+        entry = next(
+            (e for e in index if e.get("sha256Before") == sha256_before and e.get("docId") == doc_id),
+            None,
+        )
+        if not entry:
+            raise ValueError(
+                f"No backup with sha256Before={sha256_before} recorded for document {doc_id}."
+            )
+
+    if entry.get("docId") != doc_id:
+        raise ValueError(
+            f"Refusing to restore: backup belongs to document {entry.get('docId')!r}, "
+            f"not {doc_id!r}."
+        )
+
+    backup_abs = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+    if backup_abs is None:
+        raise ValueError(f"Backup path escapes backup dir: {entry.get('backupPath')!r}.")
+    if not backup_abs.exists():
+        raise FileNotFoundError(f"Backup file missing on disk: {entry.get('backupPath')!r}.")
+
+    raw = backup_abs.read_bytes()
+    root = _require_root(json.loads(raw.decode("utf-8")))  # validate restorable JSON + root
+    return {
+        "backupAbs": backup_abs,
+        "backupRaw": raw,
+        "backupRoot": root,
+        "backupSha256": _sha256(raw),
+        "backupSizeBytes": len(raw),
+        "entry": {
+            "backupPath": entry.get("backupPath"),
+            "createdAt": entry.get("createdAt"),
+            "operation": entry.get("operation"),
+            "sha256Before": entry.get("sha256Before"),
+            "sizeBytes": entry.get("sizeBytes"),
+            "source": entry.get("source"),
+            "docId": entry.get("docId"),
+        },
+    }
+
+
+def restore_kmind_backup(
+    *,
+    asset_abs: Path,
+    data_dir: Path,
+    asset_rel: str,
+    doc_id: str,
+    index: list[dict[str, Any]],
+    backup_path: str | None = None,
+    sha256_before: str | None = None,
+    expected_sha256: str | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Restore a KMind asset from one of its own backups, byte-for-byte.
+
+    Offline-friendly: the caller does SiYuan resolution and passes paths + the
+    backup index, so this needs no live SiYuan. ``dry_run`` (default True) writes
+    nothing and creates no backup — it returns the chosen backup, current/backup
+    sha, and a best-effort diff summary (current -> backup) so the change can be
+    reviewed first. A real restore re-checks the on-disk sha to avoid clobbering a
+    concurrent KMind UI edit, creates a ``before-restore`` backup of the current
+    file, then writes the backup bytes back verbatim.
+    """
+    backup_dir = _backup_dir(data_dir)
+    src = resolve_restore_source(backup_dir, index, doc_id, backup_path, sha256_before)
+
+    if not asset_abs.exists():
+        raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
+    cur_raw = asset_abs.read_bytes()
+    cur_sha = _sha256(cur_raw)
+    if expected_sha256 and expected_sha256 != cur_sha:
+        raise ValueError(
+            f"sha256 mismatch for {doc_id}: expected {expected_sha256}, on-disk "
+            f"{cur_sha}. Re-read the KMind file before restoring."
+        )
+
+    # Best-effort preview of what restoring would change (current -> backup).
+    diff_summary: dict[str, Any] | None = None
+    try:
+        cur_root = _require_root(json.loads(cur_raw.decode("utf-8")))
+        diff_summary = diff_kmind_trees(cur_root, src["backupRoot"])["summary"]
+    except (json.JSONDecodeError, ValueError):
+        diff_summary = None
+
+    result: dict[str, Any] = {
+        "operation": "restore",
+        "backup": {**src["entry"], "backupSha256": src["backupSha256"]},
+        "current": {"sha256": cur_sha, "sizeBytes": len(cur_raw)},
+        "willRestoreToSha256": src["backupSha256"],
+        "identical": src["backupSha256"] == cur_sha,
+        "diffSummary": diff_summary,
+    }
+
+    if dry_run:
+        result["dryRun"] = True
+        result["backupCreated"] = None
+        result["hint"] = (
+            "Preview only — nothing written. For full per-node detail run "
+            "siyuan_kmind_diff against this backup, then re-call with dry_run=false "
+            "to apply."
+        )
+        return result
+
+    # Re-read just before writing to catch a concurrent UI edit during processing.
+    if _sha256(asset_abs.read_bytes()) != cur_sha:
+        raise ValueError(
+            "KMind file changed on disk during processing; aborting restore to "
+            "avoid overwriting a concurrent edit. Re-read and retry."
+        )
+
+    backup_created = write_backup(
+        data_dir=data_dir,
+        asset_abs=asset_abs,
+        asset_rel=asset_rel,
+        doc_id=doc_id,
+        operation="restore",
+        sha256_before=cur_sha,
+        size_bytes=len(cur_raw),
+        timestamp=datetime.now().strftime("%Y%m%d-%H%M%S-%f"),
+    )
+    asset_abs.write_bytes(src["backupRaw"])
+    new_raw = asset_abs.read_bytes()
+    result["dryRun"] = False
+    result["backupCreated"] = backup_created
+    result["sha256After"] = _sha256(new_raw)
+    result["sizeBytesAfter"] = len(new_raw)
+    return result
+
+
 # --- Tools -------------------------------------------------------------------
 
 
@@ -1093,3 +1254,53 @@ def siyuan_kmind_list_backups(
         "assetRelPath": meta["assetRelPath"],
         **list_kmind_backups(backup_dir, index, meta["docId"]),
     }
+
+
+@mcp.tool()
+def siyuan_kmind_restore_backup(
+    path: str | None = None,
+    notebook: str | None = None,
+    doc_id: str | None = None,
+    backup_path: str | None = None,
+    sha256_before: str | None = None,
+    dry_run: bool = True,
+    expected_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Restore a KMind document from one of its own backups (write; dry-run-first).
+
+    **Defaults to dry_run=True** — a dry run writes nothing and creates no backup;
+    it returns the chosen backup, the current and backup sha256, and a best-effort
+    diff summary (current -> backup) so you can review the change first (use
+    siyuan_kmind_diff for full per-node detail).
+
+    You MUST identify the backup explicitly — there is no "latest" default. Pass
+    exactly one of backup_path (a backup file name) or sha256_before (matches a
+    backup's recorded sha256Before). The backup must be recorded in the index for
+    THIS document; restoring another document's backup is refused.
+
+    With dry_run=false the tool re-checks the on-disk sha (pass expected_sha256 to
+    guard against a concurrent KMind UI edit), creates a `before-restore` backup of
+    the current file, then writes the backup's bytes back verbatim. Returns the
+    old/new sha256 and the name of the before-restore backup created.
+
+    This is the only write tool in the safety layer; it does not move, delete,
+    import, or bulk-edit nodes.
+    """
+    meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
+    asset_abs = Path(meta["assetAbsPath"])
+    if not meta["exists"] or not asset_abs.exists():
+        raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
+    data_dir = find_siyuan_data_dir()
+    index = _load_backup_index(_backup_dir(data_dir))
+    result = restore_kmind_backup(
+        asset_abs=asset_abs,
+        data_dir=data_dir,
+        asset_rel=meta["assetRelPath"],
+        doc_id=meta["docId"],
+        index=index,
+        backup_path=backup_path,
+        sha256_before=sha256_before,
+        expected_sha256=expected_sha256,
+        dry_run=dry_run,
+    )
+    return {"docId": meta["docId"], "title": meta["title"], **result}
