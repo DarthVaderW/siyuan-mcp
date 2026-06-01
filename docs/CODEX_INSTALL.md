@@ -28,7 +28,7 @@ Args:
   tool
   run
   --from
-  git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.8
+  git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.9
   siyuan-mcp
 ```
 

@@ -31,7 +31,7 @@ Current installed/user-facing MCP route:
 ```text
 Codex GUI custom MCP:
   command: uv
-  args: tool run --from git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.8 siyuan-mcp
+  args: tool run --from git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.9 siyuan-mcp
 
 Claude Code can use the same stdio MCP command or the Claude plugin wrapper.
 Tokens stay in the user's local client config, not Git.
