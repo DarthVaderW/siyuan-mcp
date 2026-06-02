@@ -55,7 +55,6 @@ load_dotenv(ROOT_DIR / ".env")
 BASE_URL = os.getenv("SIYUAN_BASE_URL", "http://127.0.0.1:6806").rstrip("/")
 TOKEN = os.getenv("SIYUAN_TOKEN", "")
 DEFAULT_NOTEBOOK = os.getenv("SIYUAN_DEFAULT_NOTEBOOK", "")
-CODEX_NOTEBOOK = os.getenv("SIYUAN_CODEX_NOTEBOOK", "CodeX")
 ALLOW_RAW_API = os.getenv("SIYUAN_ALLOW_RAW_API", "").lower() in {
     "1",
     "true",
@@ -131,14 +130,6 @@ def current_default_notebook() -> str:
         DEFAULT_NOTEBOOK,
         "x-siyuan-default-notebook",
         "siyuan-default-notebook",
-    )
-
-
-def current_codex_notebook() -> str:
-    return env_or_header(
-        CODEX_NOTEBOOK,
-        "x-siyuan-codex-notebook",
-        "siyuan-codex-notebook",
     )
 
 

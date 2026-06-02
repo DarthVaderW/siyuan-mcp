@@ -23,7 +23,6 @@ from siyuan_research_mcp.core import (
     call_siyuan,
     current_allow_raw_api,
     current_base_url,
-    current_codex_notebook,
     current_default_notebook,
     current_token,
     extract_notebooks,
@@ -339,32 +338,6 @@ def siyuan_find_docs_by_attrs(
     )
     rows = call_siyuan("/api/query/sql", {"stmt": stmt})
     return {"rows": rows, "stmt": stmt}
-
-
-@mcp.tool()
-def siyuan_append_experience_note(
-    title: str,
-    markdown: str,
-    notePath: str = "/MCP/经验库/windows-codex-siyuan-mcp-pitfalls",
-    notebook: str | None = None,
-) -> dict[str, Any]:
-    """Legacy compatibility wrapper for old experience-library clients.
-
-    New callers should choose the correct experience-card path and call
-    `siyuan_upsert_doc_section` directly. This wrapper intentionally preserves
-    the historical experience-library defaults for older clients. It is
-    deprecated and scheduled for removal in v0.2.
-    """
-    return siyuan_upsert_doc_section(
-        path=notePath,
-        notebook=notebook or current_codex_notebook(),
-        title=title,
-        markdown=markdown,
-        attrs={
-            "custom-type": "codex-experience",
-            "custom-project": "siyuan-mcp",
-        },
-    )
 
 
 @mcp.tool()

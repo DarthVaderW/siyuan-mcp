@@ -247,12 +247,6 @@ KMind 工具操作思源文档关联的 `.kmind` 资产文件。读取工具不�
 
 从同一文档的备份恢复 KMind。默认 `dry_run=true`，必须显式指定备份文件名或 sha256；正式恢复会先给当前文件再做一次备份。
 
-## Deprecated compatibility tools
-
-### `siyuan_append_experience_note`（legacy）
-
-历史兼容包装器，会使用旧的经验库默认路径和经验属性。新的上层调用方不应依赖它；应先判断目标文档路径，然后直接调用 `siyuan_upsert_doc_section`。计划在 v0.2 删除。
-
 ## 兜底 API
 
 ### `siyuan_call_api`
