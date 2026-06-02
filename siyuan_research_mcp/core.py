@@ -53,7 +53,7 @@ load_dotenv(ROOT_DIR / ".env")
 BASE_URL = os.getenv("SIYUAN_BASE_URL", "http://127.0.0.1:6806").rstrip("/")
 TOKEN = os.getenv("SIYUAN_TOKEN", "")
 DEFAULT_NOTEBOOK = os.getenv("SIYUAN_DEFAULT_NOTEBOOK", "")
-CODEX_NOTEBOOK = os.getenv("SIYUAN_CODEX_NOTEBOOK", "20260222005018-okt4cvb")
+CODEX_NOTEBOOK = os.getenv("SIYUAN_CODEX_NOTEBOOK", "CodeX")
 ALLOW_RAW_API = os.getenv("SIYUAN_ALLOW_RAW_API", "").lower() in {
     "1",
     "true",

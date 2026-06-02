@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -19,6 +20,9 @@ def headers(values: dict[str, str]) -> Iterator[None]:
 
 
 def main() -> None:
+    if os.getenv("SIYUAN_CODEX_NOTEBOOK") is None:
+        assert core.CODEX_NOTEBOOK == "CodeX"
+
     with headers({"authorization": "Bearer siyuan-secret"}):
         assert server.current_token() == "siyuan-secret"
 

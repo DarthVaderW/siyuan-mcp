@@ -116,9 +116,12 @@
 
 确保文档存在，然后追加一个标题段落。适合日记、Codex 解决方案、阅读日志。
 
-### `siyuan_append_experience_note`
+### `siyuan_append_experience_note`（legacy）
 
-把可复用经验追加到 `CodeX/MCP/经验库` 约定位置。适合记录 Windows、shell、编码、PATH、MCP、思源 API、Zotero 集成等踩坑。
+历史兼容包装器，会使用旧的 `CodeX/MCP/经验库` 默认路径和经验属性。
+新 skill 不应依赖它；应先在 skill 里判断经验卡片分类和路径，然后直接调用
+`siyuan_upsert_doc_section`。这样 MCP 保持通用，经验库结构留在 workflow skill
+里维护。
 
 ## 思源数据库/属性视图
 

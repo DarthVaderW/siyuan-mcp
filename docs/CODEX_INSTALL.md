@@ -1,47 +1,48 @@
-# Codex And Claude Code Install
+# Client Install Notes
 
 This repository is a pure SiYuan MCP. It exposes low-level SiYuan document,
 block, search, attribute, and AttributeView/database tools.
 
-## Codex Plugin Install
+For the full umbrella install and upgrade flow, see the control repository's
+`docs/INSTALL.md`. This component page keeps only the current client-specific
+shape.
 
-Make sure `uv` is available before installing the plugin:
+## Prerequisite
+
+Make sure `uv` and `uvx` are available to desktop apps:
 
 ```bash
 uv --version
+uvx --version
 ```
 
-If it is missing, install `uv` from Astral:
+If either command is missing, install `uv` and then restart Codex or Claude
+Code:
+
+```bash
+brew install uv
+```
+
+or:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Then restart Codex or Claude Code so the updated PATH is picked up.
+## Codex
 
-For the Codex GUI custom MCP flow, use:
+Use a custom STDIO MCP entry in Codex.
 
 ```text
 Name: siyuan
-Command: uv
+Command: uvx
 Args:
-  tool
-  run
   --from
-  git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.10
+  git+https://github.com/DarthVaderW/siyuan-mcp.git@stable
   siyuan-mcp
 ```
 
-Install the public marketplace and plugin:
-
-```bash
-codex plugin marketplace add DarthVaderW/siyuan-mcp --ref stable \
-  --sparse .agents/plugins \
-  --sparse plugins/siyuan-mcp
-codex plugin add siyuan-mcp@siyuan-mcp
-```
-
-Then configure these values in Codex Settings -> MCP:
+Configure these values in the same MCP entry:
 
 ```text
 SIYUAN_BASE_URL=http://127.0.0.1:6806
@@ -51,32 +52,48 @@ SIYUAN_CODEX_NOTEBOOK=CodeX
 SIYUAN_ALLOW_RAW_API=false
 ```
 
-The plugin starts the stdio MCP with `uv tool run` from a fixed release tag; no local
-HTTP service is required, and normal MCP startup does not auto-refresh from
-GitHub.
+Do not use Codex plugin install as the ordinary path for this MCP right now.
+Codex plugin-provided MCP rows are read-only and do not currently expose an
+editable token/config form. The Codex plugin shell remains in the repository for
+packaging, marketplace testing, and possible future Codex plugin improvements.
 
-To upgrade the plugin install:
+To upgrade after `stable` moves:
 
 ```bash
-codex plugin marketplace upgrade siyuan-mcp
+uvx --refresh --from git+https://github.com/DarthVaderW/siyuan-mcp.git@stable siyuan-mcp --help >/dev/null
 ```
 
-For GUI custom MCP installs, change the tag in the args to the new release tag
-and restart Codex.
+Then fully restart Codex and open a new thread.
 
-## Claude Code Plugin Install
+## Claude Code
 
-Inside Claude Code:
+Use the GUI Personal plugins path when available:
 
 ```text
-/plugin marketplace add DarthVaderW/siyuan-mcp
-/plugin install siyuan-mcp@darthvaderw-siyuan-mcp
+Customize -> Personal plugins -> Add
+DarthVaderW/siyuan-mcp
+```
+
+CLI install is also valid:
+
+```bash
+claude plugin marketplace add DarthVaderW/siyuan-mcp
+claude plugin install siyuan-mcp@darthvaderw-siyuan-mcp
 ```
 
 Claude Code prompts for the same local values through `userConfig`. For current
 Claude Code compatibility, the token is stored with the other plugin options
 instead of using Claude's `sensitive` userConfig mode. This is local to the
 user's machine, but it is not keychain-backed.
+
+To upgrade:
+
+```bash
+claude plugin marketplace update darthvaderw-siyuan-mcp
+claude plugin update siyuan-mcp@darthvaderw-siyuan-mcp
+```
+
+Restart Claude Code after updating.
 
 ## Developer Command Mode
 
@@ -96,8 +113,8 @@ Do not commit `.env` or real tokens.
 uv run python scripts/smoke_test_mcp.py --config-command --expect-tool siyuan_ping
 ```
 
-The smoke tests verify MCP tool discovery. `siyuan_ping` requires SiYuan running
-locally and a valid token.
+The smoke test verifies MCP tool discovery. `siyuan_ping` requires SiYuan
+running locally and a valid token.
 
 ## Claude Code Startup Failure
 

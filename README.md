@@ -9,8 +9,8 @@ paper-system workflow. Those responsibilities live in sibling repositories.
 
 ## Install
 
-This repository ships the same stdio MCP server for Codex and Claude Code. The
-MCP implementation is shared; only the plugin shell differs by client.
+This repository ships one stdio MCP server. Codex and Claude Code use the same
+server, but the ordinary client setup differs.
 
 Prerequisite:
 
@@ -33,33 +33,24 @@ brew install uv
 After installing, restart Codex or Claude Code so the app can see the updated
 PATH.
 
-Codex GUI custom MCP:
+Codex recommended path: add a custom STDIO MCP server in the Codex MCP Servers
+settings.
 
 ```text
 Name: siyuan
-Command: uv
+Command: uvx
 Args:
-  tool
-  run
   --from
-  git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.10
+  git+https://github.com/DarthVaderW/siyuan-mcp.git@stable
   siyuan-mcp
 ```
 
-Codex:
-
-```bash
-codex plugin marketplace add DarthVaderW/siyuan-mcp --ref stable \
-  --sparse .agents/plugins \
-  --sparse plugins/siyuan-mcp
-codex plugin add siyuan-mcp@siyuan-mcp
-```
-
-Claude Code:
+Claude Code recommended path: use the GUI Personal plugins flow, or the
+equivalent CLI plugin commands.
 
 ```text
-/plugin marketplace add DarthVaderW/siyuan-mcp
-/plugin install siyuan-mcp@darthvaderw-siyuan-mcp
+Customize -> Personal plugins -> Add
+DarthVaderW/siyuan-mcp
 ```
 
 ## Configure
@@ -74,19 +65,30 @@ SIYUAN_CODEX_NOTEBOOK=CodeX
 SIYUAN_ALLOW_RAW_API=false
 ```
 
-Codex users enter these in the Codex MCP configuration UI. Claude Code users
+Codex users enter these in the custom STDIO MCP configuration. Claude Code users
 enter them through the plugin's `userConfig` prompt. For current Claude Code
 compatibility, the token is stored with the other plugin options instead of
 using Claude's `sensitive` userConfig mode. Do not commit `.env` or real tokens.
 
+Codex plugin manifests are still kept in this repository for packaging,
+marketplace testing, and possible future Codex plugin improvements. They are not
+the ordinary Codex install path right now because plugin-provided MCP rows are
+read-only in Codex and do not expose an editable token/config form.
+
 ## Upgrade
 
-GUI custom MCP users upgrade by changing the Git tag in the MCP args, for
-example from `@v0.1.10` to the next release tag, then restarting Codex. Plugin
-users upgrade the marketplace snapshot, then restart Codex:
+Codex users refresh the local `uvx @stable` cache, then fully restart Codex and
+open a new thread:
 
 ```bash
-codex plugin marketplace upgrade siyuan-mcp
+uvx --refresh --from git+https://github.com/DarthVaderW/siyuan-mcp.git@stable siyuan-mcp --help >/dev/null
+```
+
+Claude Code users update the marketplace/plugin, then restart Claude Code:
+
+```bash
+claude plugin marketplace update darthvaderw-siyuan-mcp
+claude plugin update siyuan-mcp@darthvaderw-siyuan-mcp
 ```
 
 ## Developer Command Mode

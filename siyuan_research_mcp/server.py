@@ -342,7 +342,12 @@ def siyuan_append_experience_note(
     notePath: str = "/MCP/经验库/windows-codex-siyuan-mcp-pitfalls",
     notebook: str | None = None,
 ) -> dict[str, Any]:
-    """Append a reusable Codex/MCP/SiYuan experience note under the experience library."""
+    """Legacy compatibility wrapper for old experience-library clients.
+
+    New workflow skills should choose the correct experience-card path and call
+    `siyuan_upsert_doc_section` directly. This wrapper intentionally preserves
+    the historical CodeX experience-library defaults for older clients.
+    """
     return siyuan_upsert_doc_section(
         path=notePath,
         notebook=notebook or current_codex_notebook(),

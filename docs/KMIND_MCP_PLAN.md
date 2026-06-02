@@ -29,11 +29,11 @@ Test runner: scripts/test_all.py
 Current installed/user-facing MCP route:
 
 ```text
-Codex GUI custom MCP:
-  command: uv
-  args: tool run --from git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.10 siyuan-mcp
+Codex custom STDIO MCP:
+  command: uvx
+  args: --from git+https://github.com/DarthVaderW/siyuan-mcp.git@stable siyuan-mcp
 
-Claude Code can use the same stdio MCP command or the Claude plugin wrapper.
+Claude Code uses the GUI/plugin path when available.
 Tokens stay in the user's local client config, not Git.
 ```
 
