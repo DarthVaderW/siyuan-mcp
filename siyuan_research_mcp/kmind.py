@@ -29,7 +29,6 @@ from siyuan_research_mcp.core import call_siyuan, current_default_notebook, mcp
 
 DOC_KMIND_ASSET_ATTR = "custom-data-assets-kmind-doctree-doc"
 BACKUP_REL_DIR = ("storage", "siyuan-mcp-kmind-backups")
-LEGACY_BACKUP_REL_DIRS = (("storage", "codex-kmind-backups"),)
 BACKUP_INDEX_NAME = "backup_index.json"
 
 # Node styles that are safe to change without affecting surrounding branches.
@@ -332,23 +331,14 @@ def _backup_dir(data_dir: Path) -> Path:
     return data_dir.joinpath(*BACKUP_REL_DIR)
 
 
-def _backup_store_dirs(data_dir: Path) -> list[tuple[str, Path]]:
-    stores = [("current", _backup_dir(data_dir))]
-    for rel_dir in LEGACY_BACKUP_REL_DIRS:
-        legacy_dir = data_dir.joinpath(*rel_dir)
-        if legacy_dir.exists():
-            stores.append(("legacy", legacy_dir))
-    return stores
-
-
 def _load_backup_view(data_dir: Path) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for store, backup_dir in _backup_store_dirs(data_dir):
-        for entry in _load_backup_index(backup_dir):
-            decorated = dict(entry)
-            decorated["_backupStore"] = store
-            decorated["_backupDir"] = str(backup_dir)
-            entries.append(decorated)
+    backup_dir = _backup_dir(data_dir)
+    for entry in _load_backup_index(backup_dir):
+        decorated = dict(entry)
+        decorated["_backupStore"] = "current"
+        decorated["_backupDir"] = str(backup_dir)
+        entries.append(decorated)
     return entries
 
 
@@ -1305,8 +1295,8 @@ def siyuan_kmind_list_backups(
     """List the KMind backups recorded for a document, newest first (read-only).
 
     Locate the document by doc_id (preferred) or path/notebook. Reads the current
-    backup index and any legacy read-only backup index, then returns every
-    backup for this document with backupPath / createdAt / operation /
+    backup index, then returns every backup for this document with backupPath /
+    createdAt / operation /
     sha256Before / sizeBytes / source / backupStore / backupDir / existsOnDisk,
     plus a summary. No write, no backup. If the document has no backups, returns
     an empty list with a zeroed summary, not an error.

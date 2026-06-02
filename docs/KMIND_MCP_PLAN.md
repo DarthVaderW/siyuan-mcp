@@ -46,13 +46,7 @@ The backup index is:
 backup_index.json
 ```
 
-For compatibility, tools may read older backups from:
-
-```text
-the legacy backup directory configured in code
-```
-
-The legacy directory is read-only compatibility storage. New writes must use the
+List, diff, restore, and new writes use only the
 `siyuan-mcp-kmind-backups` directory.
 
 ## Deferred Work

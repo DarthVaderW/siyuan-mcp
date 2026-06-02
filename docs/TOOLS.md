@@ -205,7 +205,7 @@ MCP 提供通用思源能力，上层调用方决定具体业务流程。
 
 ## KMind
 
-KMind 工具操作思源文档关联的 `.kmind` 资产文件。读取工具不写文件；写入工具默认带备份，并支持 `dry_run` 和 `expected_sha256` 做人工确认与并发保护。备份默认写入 `storage/siyuan-mcp-kmind-backups`，历史 `storage/codex-kmind-backups` 只读兼容。
+KMind 工具操作思源文档关联的 `.kmind` 资产文件。读取工具不写文件；写入工具默认带备份，并支持 `dry_run` 和 `expected_sha256` 做人工确认与并发保护。备份写入 `storage/siyuan-mcp-kmind-backups`。
 
 ### `siyuan_kmind_find`
 
