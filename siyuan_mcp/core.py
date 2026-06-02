@@ -1,9 +1,9 @@
 """Shared core for the SiYuan MCP server.
 
-Holds the single FastMCP instance, runtime configuration, header/config
-resolution, and the low-level SiYuan HTTP client. Tool modules (server.py,
-attributeview.py, and future kmind.py) import from here so they all register
-on the same `mcp` instance. This module must never be run as ``__main__``.
+Holds the single FastMCP instance, runtime configuration, and the low-level
+SiYuan HTTP client. Tool modules (server.py, attributeview.py, and future
+kmind.py) import from here so they all register on the same `mcp` instance.
+This module must never be run as ``__main__``.
 """
 
 from __future__ import annotations
@@ -61,84 +61,24 @@ ALLOW_RAW_API = os.getenv("SIYUAN_ALLOW_RAW_API", "").lower() in {
     "yes",
     "on",
 }
-MCP_HOST = os.getenv("SIYUAN_MCP_HOST", "127.0.0.1")
-MCP_PORT = int(os.getenv("SIYUAN_MCP_PORT", "6816"))
-MCP_PATH = os.getenv("SIYUAN_MCP_PATH", "/mcp")
 
-mcp = FastMCP("siyuan-mcp", host=MCP_HOST, port=MCP_PORT, streamable_http_path=MCP_PATH)
-
-
-def request_headers() -> Any:
-    try:
-        request = mcp.get_context().request_context.request
-    except Exception:
-        return {}
-    return getattr(request, "headers", {}) or {}
-
-
-def header_value(*names: str) -> str | None:
-    headers = request_headers()
-    for name in names:
-        try:
-            value = headers.get(name)
-        except AttributeError:
-            value = None
-        if value:
-            return str(value).strip()
-    return None
-
-
-def bearer_token() -> str | None:
-    authorization = header_value("authorization")
-    if not authorization:
-        return None
-    scheme, _, value = authorization.partition(" ")
-    if scheme.lower() in {"bearer", "token"} and value.strip():
-        return value.strip()
-    return None
-
-
-def env_or_header(env_value: str, *headers: str) -> str:
-    return header_value(*headers) or env_value
-
-
-def truthy_header(env_value: bool, *headers: str) -> bool:
-    value = header_value(*headers)
-    if value is None:
-        return env_value
-    return value.lower() in {"1", "true", "yes", "on"}
+mcp = FastMCP("siyuan-mcp")
 
 
 def current_base_url() -> str:
-    return env_or_header(
-        BASE_URL,
-        "x-siyuan-base-url",
-        "siyuan-base-url",
-    ).rstrip("/")
+    return BASE_URL
 
 
 def current_token() -> str:
-    return (
-        header_value("x-siyuan-token", "siyuan-token")
-        or bearer_token()
-        or TOKEN
-    )
+    return TOKEN
 
 
 def current_default_notebook() -> str:
-    return env_or_header(
-        DEFAULT_NOTEBOOK,
-        "x-siyuan-default-notebook",
-        "siyuan-default-notebook",
-    )
+    return DEFAULT_NOTEBOOK
 
 
 def current_allow_raw_api() -> bool:
-    return truthy_header(
-        ALLOW_RAW_API,
-        "x-siyuan-allow-raw-api",
-        "siyuan-allow-raw-api",
-    )
+    return ALLOW_RAW_API
 
 
 def assert_api_endpoint(endpoint: str) -> None:
