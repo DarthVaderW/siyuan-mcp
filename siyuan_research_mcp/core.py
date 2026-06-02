@@ -19,7 +19,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-VERSION = "0.1.10"
+VERSION = "0.1.11"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
