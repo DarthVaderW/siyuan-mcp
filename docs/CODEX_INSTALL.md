@@ -3,9 +3,8 @@
 This repository is a pure SiYuan MCP. It exposes low-level SiYuan document,
 block, search, attribute, and AttributeView/database tools.
 
-For the full umbrella install and upgrade flow, see the control repository's
-`docs/INSTALL.md`. This component page keeps only the current client-specific
-shape.
+This component page keeps the current client-specific setup self-contained for
+public users.
 
 ## Prerequisite
 
@@ -62,7 +61,8 @@ To upgrade after `stable` moves:
 uvx --refresh --from git+https://github.com/DarthVaderW/siyuan-mcp.git@stable siyuan-mcp --help >/dev/null
 ```
 
-Then fully restart Codex and open a new thread.
+Then fully restart Codex. Existing threads can see refreshed MCP tools after
+restart; if they do not, open a new thread.
 
 ## Claude Code
 

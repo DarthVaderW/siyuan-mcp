@@ -99,7 +99,7 @@ def _sample_tree() -> dict:
     """A small KMind doc with several hand-styled branches (distinct lineColors)."""
     return {
         "root": {
-            "data": {"text": "<p>论文梳理</p>", "uid": "u-root", "expand": True},
+            "data": {"text": "<p>Example KMind</p>", "uid": "u-root", "expand": True},
             "children": [
                 {
                     "data": {
@@ -754,7 +754,7 @@ def test_resolve_restore_source_by_path_and_by_sha() -> None:
             assert src["backupSha256"] == sha
             assert src["entry"]["backupPath"] == "g.kmind"
             assert src["entry"]["docId"] == "docA"
-            assert K.node_plain_text(src["backupRoot"]) == "论文梳理"
+            assert K.node_plain_text(src["backupRoot"]) == "Example KMind"
 
 
 def test_resolve_restore_source_rejects_foreign_doc() -> None:
@@ -897,7 +897,7 @@ def test_restore_kmind_backup_real_round_trip() -> None:
         assert out["dryRun"] is False
         assert out["sha256After"] == good_sha
         assert asset.read_bytes() == (backup_dir / "good.kmind").read_bytes()
-        assert K.node_plain_text(K._require_root(K.load_kmind(asset)[0])) == "论文梳理"
+        assert K.node_plain_text(K._require_root(K.load_kmind(asset)[0])) == "Example KMind"
 
         # A before-restore backup of the prior (damaged) content was created...
         created = out["backupCreated"]
