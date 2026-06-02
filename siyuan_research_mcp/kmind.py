@@ -6,7 +6,7 @@ JSON ``.kmind`` file under ``<dataDir>/assets``. These tools provide low-level,
 safe primitives over that JSON (read/export/search/add/style) with optimistic
 concurrency (sha256) and automatic backups for writes.
 
-Workflow decisions (e.g. how to classify papers) belong in skills, not here.
+Workflow decisions belong in callers, not here.
 Importing this module registers the ``siyuan_kmind_*`` tools on the shared
 ``mcp`` instance from :mod:`siyuan_research_mcp.core`.
 """
@@ -28,7 +28,8 @@ from siyuan_research_mcp.core import call_siyuan, current_default_notebook, mcp
 # --- Constants ---------------------------------------------------------------
 
 DOC_KMIND_ASSET_ATTR = "custom-data-assets-kmind-doctree-doc"
-BACKUP_REL_DIR = ("storage", "codex-kmind-backups")
+BACKUP_REL_DIR = ("storage", "siyuan-mcp-kmind-backups")
+LEGACY_BACKUP_REL_DIRS = (("storage", "codex-kmind-backups"),)
 BACKUP_INDEX_NAME = "backup_index.json"
 
 # Node styles that are safe to change without affecting surrounding branches.
@@ -331,6 +332,26 @@ def _backup_dir(data_dir: Path) -> Path:
     return data_dir.joinpath(*BACKUP_REL_DIR)
 
 
+def _backup_store_dirs(data_dir: Path) -> list[tuple[str, Path]]:
+    stores = [("current", _backup_dir(data_dir))]
+    for rel_dir in LEGACY_BACKUP_REL_DIRS:
+        legacy_dir = data_dir.joinpath(*rel_dir)
+        if legacy_dir.exists():
+            stores.append(("legacy", legacy_dir))
+    return stores
+
+
+def _load_backup_view(data_dir: Path) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for store, backup_dir in _backup_store_dirs(data_dir):
+        for entry in _load_backup_index(backup_dir):
+            decorated = dict(entry)
+            decorated["_backupStore"] = store
+            decorated["_backupDir"] = str(backup_dir)
+            entries.append(decorated)
+    return entries
+
+
 def _load_backup_index(backup_dir: Path) -> list[dict[str, Any]]:
     index_path = backup_dir / BACKUP_INDEX_NAME
     if not index_path.exists():
@@ -443,6 +464,30 @@ def _backup_path_in_dir(backup_dir: Path, backup_path: str | None) -> Path | Non
     return candidate
 
 
+def _entry_backup_dir(default_backup_dir: Path, entry: dict[str, Any]) -> Path:
+    backup_dir = entry.get("_backupDir")
+    return Path(str(backup_dir)) if backup_dir else default_backup_dir
+
+
+def _entry_backup_path(default_backup_dir: Path, entry: dict[str, Any]) -> Path | None:
+    return _backup_path_in_dir(_entry_backup_dir(default_backup_dir, entry), entry.get("backupPath"))
+
+
+def _candidate_backup_dirs(default_backup_dir: Path, index: list[dict[str, Any]]) -> list[Path]:
+    dirs = [default_backup_dir]
+    for entry in index:
+        backup_dir = _entry_backup_dir(default_backup_dir, entry)
+        if backup_dir not in dirs:
+            dirs.append(backup_dir)
+    return dirs
+
+
+def _newest_entry(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not entries:
+        return None
+    return max(entries, key=lambda e: (e.get("createdAt", ""), e.get("_backupStore", ""), e.get("backupPath", "")))
+
+
 def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: str) -> dict[str, Any]:
     """Summarize the backups recorded for one document, newest first (read-only).
 
@@ -460,7 +505,8 @@ def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: st
         if entry.get("docId") != doc_id:
             continue
         backup_path = entry.get("backupPath")
-        backup_abs = _backup_path_in_dir(backup_dir, backup_path)
+        entry_backup_dir = _entry_backup_dir(backup_dir, entry)
+        backup_abs = _entry_backup_path(backup_dir, entry)
         exists = backup_abs is not None and backup_abs.exists()
         if not exists:
             missing_files += 1
@@ -473,6 +519,8 @@ def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: st
                 "sha256Before": entry.get("sha256Before"),
                 "sizeBytes": entry.get("sizeBytes"),
                 "source": entry.get("source"),
+                "backupStore": entry.get("_backupStore") or "current",
+                "backupDir": str(entry_backup_dir),
                 "existsOnDisk": exists,
             }
         )
@@ -484,6 +532,7 @@ def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: st
             "totalSizeBytes": total_size,
             "missingFiles": missing_files,
             "backupDir": str(backup_dir),
+            "backupStores": sorted({str(e.get("backupStore")) for e in backups}),
         },
     }
 
@@ -603,6 +652,8 @@ def _backup_reference_report(
         "sha256Before": entry.get("sha256Before"),
         "sha256": sha256,  # actual content sha of the reference we loaded
         "sizeBytes": size_bytes,
+        "backupStore": entry.get("_backupStore"),
+        "backupDir": entry.get("_backupDir") or str(ref_abs.parent),
     }
 
 
@@ -648,12 +699,18 @@ def resolve_diff_reference(
 
     if against_backup_path:
         name = Path(against_backup_path).name
-        ref_abs = _backup_path_in_dir(backup_dir, name)
-        if ref_abs is None:
-            raise ValueError(f"Backup path escapes backup dir: {against_backup_path}")
-        if not ref_abs.exists():
-            raise FileNotFoundError(f"Backup not found in backup dir: {against_backup_path}")
-        entry = next((e for e in index if e.get("backupPath") == name), None)
+        entry = _newest_entry([e for e in index if e.get("backupPath") == name])
+        if entry:
+            ref_abs = _entry_backup_path(backup_dir, entry)
+            if ref_abs is None:
+                raise ValueError(f"Backup path escapes backup dir: {against_backup_path}")
+        else:
+            ref_abs = next(
+                ((candidate / name) for candidate in _candidate_backup_dirs(backup_dir, index) if (candidate / name).exists()),
+                None,
+            )
+        if ref_abs is None or not ref_abs.exists():
+            raise FileNotFoundError(f"Backup not found in backup stores: {against_backup_path}")
         root, sha256, size_bytes = _load_kmind_root(ref_abs)
         return {
             "status": "ok",
@@ -668,7 +725,7 @@ def resolve_diff_reference(
         )
         if not entry:
             raise ValueError(f"No backup with sha256Before={against_sha256} for document {doc_id}.")
-        ref_abs = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+        ref_abs = _entry_backup_path(backup_dir, entry)
         if ref_abs is None:
             raise ValueError(f"Backup path escapes backup dir: {entry.get('backupPath')}")
         if not ref_abs.exists():
@@ -691,7 +748,7 @@ def resolve_diff_reference(
                 "against_sha256, or against_file to diff against an explicit reference."
             ),
         }
-    ref_abs = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+    ref_abs = _entry_backup_path(backup_dir, entry)
     if ref_abs is None:
         return {
             "status": "no-reference-available",
@@ -861,13 +918,12 @@ def resolve_restore_source(
 
     if backup_path:
         name = Path(backup_path).name
-        entry = next((e for e in index if e.get("backupPath") == name), None)
+        entry = _newest_entry([e for e in index if e.get("backupPath") == name])
         if not entry:
             raise ValueError(f"No backup named {name!r} recorded in the index.")
     else:
-        entry = next(
-            (e for e in index if e.get("sha256Before") == sha256_before and e.get("docId") == doc_id),
-            None,
+        entry = _newest_entry(
+            [e for e in index if e.get("sha256Before") == sha256_before and e.get("docId") == doc_id]
         )
         if not entry:
             raise ValueError(
@@ -880,7 +936,7 @@ def resolve_restore_source(
             f"not {doc_id!r}."
         )
 
-    backup_abs = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+    backup_abs = _entry_backup_path(backup_dir, entry)
     if backup_abs is None:
         raise ValueError(f"Backup path escapes backup dir: {entry.get('backupPath')!r}.")
     if not backup_abs.exists():
@@ -909,6 +965,8 @@ def resolve_restore_source(
             "sizeBytes": entry.get("sizeBytes"),
             "source": entry.get("source"),
             "docId": entry.get("docId"),
+            "backupStore": entry.get("_backupStore") or "current",
+            "backupDir": str(_entry_backup_dir(backup_dir, entry)),
         },
     }
 
@@ -1210,8 +1268,9 @@ def siyuan_kmind_diff(
         raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
     cur_root, cur_sha256, cur_size = _load_kmind_root(asset_abs)
 
-    backup_dir = _backup_dir(find_siyuan_data_dir())
-    index = _load_backup_index(backup_dir)
+    data_dir = find_siyuan_data_dir()
+    backup_dir = _backup_dir(data_dir)
+    index = _load_backup_view(data_dir)
     ref = resolve_diff_reference(
         backup_dir,
         index,
@@ -1245,16 +1304,17 @@ def siyuan_kmind_list_backups(
 ) -> dict[str, Any]:
     """List the KMind backups recorded for a document, newest first (read-only).
 
-    Locate the document by doc_id (preferred) or path/notebook. Reads the backup
-    index under <dataDir>/storage/codex-kmind-backups/ and returns every backup
-    for this document with backupPath / createdAt / operation / sha256Before /
-    sizeBytes / source / existsOnDisk, plus a summary (count, totalSizeBytes,
-    missingFiles, backupDir). No write, no backup. If the document has no
-    backups, returns an empty list with a zeroed summary, not an error.
+    Locate the document by doc_id (preferred) or path/notebook. Reads the current
+    backup index and any legacy read-only backup index, then returns every
+    backup for this document with backupPath / createdAt / operation /
+    sha256Before / sizeBytes / source / backupStore / backupDir / existsOnDisk,
+    plus a summary. No write, no backup. If the document has no backups, returns
+    an empty list with a zeroed summary, not an error.
     """
     meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
-    backup_dir = _backup_dir(find_siyuan_data_dir())
-    index = _load_backup_index(backup_dir)
+    data_dir = find_siyuan_data_dir()
+    backup_dir = _backup_dir(data_dir)
+    index = _load_backup_view(data_dir)
     return {
         "docId": meta["docId"],
         "title": meta["title"],
@@ -1298,7 +1358,7 @@ def siyuan_kmind_restore_backup(
     if not meta["exists"] or not asset_abs.exists():
         raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
     data_dir = find_siyuan_data_dir()
-    index = _load_backup_index(_backup_dir(data_dir))
+    index = _load_backup_view(data_dir)
     result = restore_kmind_backup(
         asset_abs=asset_abs,
         data_dir=data_dir,

@@ -1,11 +1,12 @@
 # SiYuan MCP
 
-Pure SiYuan MCP server for the research system. This repository exposes
-low-level SiYuan tools only: documents, blocks, search, attributes, and native
-database/AttributeView operations.
+General-purpose SiYuan MCP server. This repository exposes low-level SiYuan
+tools only: notebooks, documents, blocks, search, attributes, native
+database/AttributeView operations, and KMind helpers.
 
-It does not import PDFs, call Zotero, implement OpenClaw intake, or encode the
-paper-system workflow. Those responsibilities live in sibling repositories.
+It does not import PDFs, call Zotero, or encode a project-specific note
+workflow. Higher-level clients decide where notes should live and how they
+should be structured.
 
 ## Install
 
@@ -60,8 +61,7 @@ Required local values:
 ```text
 SIYUAN_BASE_URL=http://127.0.0.1:6806
 SIYUAN_TOKEN=<your SiYuan API token>
-SIYUAN_DEFAULT_NOTEBOOK=<formal/default notebook name or id>
-SIYUAN_CODEX_NOTEBOOK=CodeX
+SIYUAN_DEFAULT_NOTEBOOK=<default notebook name or id>
 SIYUAN_ALLOW_RAW_API=false
 ```
 
@@ -130,5 +130,5 @@ If `uv` works but `siyuan_ping` fails, then check:
 SiYuan is running
 SIYUAN_BASE_URL is http://127.0.0.1:6806 unless you changed the port
 SIYUAN_TOKEN matches the token in SiYuan settings
-SIYUAN_DEFAULT_NOTEBOOK and SIYUAN_CODEX_NOTEBOOK exist on this computer
+SIYUAN_DEFAULT_NOTEBOOK exists on this computer
 ```

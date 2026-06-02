@@ -344,9 +344,9 @@ def siyuan_append_experience_note(
 ) -> dict[str, Any]:
     """Legacy compatibility wrapper for old experience-library clients.
 
-    New workflow skills should choose the correct experience-card path and call
+    New callers should choose the correct experience-card path and call
     `siyuan_upsert_doc_section` directly. This wrapper intentionally preserves
-    the historical CodeX experience-library defaults for older clients.
+    the historical experience-library defaults for older clients.
     """
     return siyuan_upsert_doc_section(
         path=notePath,

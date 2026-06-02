@@ -328,9 +328,11 @@ def test_backup_same_second_collision_keeps_both_files() -> None:
         )
 
         backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        legacy_dir = data_dir.joinpath(*K.LEGACY_BACKUP_REL_DIRS[0])
         assert first != second
         assert (backup_dir / first).exists()
         assert (backup_dir / second).exists()
+        assert not legacy_dir.exists()
         index = json.loads((backup_dir / K.BACKUP_INDEX_NAME).read_text())
         assert [entry["backupPath"] for entry in index] == [first, second]
 
@@ -457,6 +459,8 @@ def test_resolve_diff_reference_latest_backup_reports_selection() -> None:
         assert report["backupPath"] == "new.kmind"
         assert report["createdAt"] == index[1]["createdAt"]
         assert report["sha256Before"] == new_sha and report["sha256"] == new_sha
+        assert report["backupStore"] is None
+        assert Path(report["backupDir"]).resolve() == backup_dir.resolve()
         assert K.node_plain_text(ref["root"]) == "MARKER"
 
 
@@ -549,6 +553,37 @@ def test_resolve_diff_reference_rejects_index_path_escape() -> None:
             assert "escapes backup dir" in str(error)
 
 
+def test_resolve_diff_reference_chooses_latest_across_backup_stores() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        current_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        legacy_dir = data_dir.joinpath(*K.LEGACY_BACKUP_REL_DIRS[0])
+        current_dir.mkdir(parents=True)
+        legacy_dir.mkdir(parents=True)
+
+        old_sha = _write_kmind(current_dir / "current.kmind", _sample_tree())
+        marked = _sample_tree()
+        marked["root"]["data"]["text"] = "<p>LEGACY-NEWER</p>"
+        new_sha = _write_kmind(legacy_dir / "legacy.kmind", marked)
+
+        K._save_backup_index(current_dir, [{
+            "docId": "docX", "backupPath": "current.kmind",
+            "operation": "add-node", "createdAt": "2026-06-01T00:00:00+00:00",
+            "sha256Before": old_sha, "sizeBytes": 1,
+        }])
+        K._save_backup_index(legacy_dir, [{
+            "docId": "docX", "backupPath": "legacy.kmind",
+            "operation": "style-node", "createdAt": "2026-06-02T00:00:00+00:00",
+            "sha256Before": new_sha, "sizeBytes": 1,
+        }])
+
+        ref = K.resolve_diff_reference(current_dir, K._load_backup_view(data_dir), "docX")
+        assert ref["status"] == "ok"
+        assert ref["reference"]["backupPath"] == "legacy.kmind"
+        assert ref["reference"]["backupStore"] == "legacy"
+        assert K.node_plain_text(ref["root"]) == "LEGACY-NEWER"
+
+
 # --- P2: siyuan_kmind_list_backups (read-only) ------------------------------
 #
 # Offline: list_kmind_backups is a pure helper over a backup dir + index, so it
@@ -582,13 +617,14 @@ def test_list_kmind_backups_newest_first_and_summary() -> None:
         assert out["backups"][0] == {
             "backupPath": "a2.kmind", "createdAt": index[1]["createdAt"],
             "operation": "style-node", "sha256Before": "sha-a2", "sizeBytes": 20,
-            "source": "assets/a.kmind", "existsOnDisk": False,
+            "source": "assets/a.kmind", "backupStore": "current",
+            "backupDir": str(backup_dir), "existsOnDisk": False,
         }
         assert out["backups"][1]["existsOnDisk"] is True
         # docB excluded; total = 10 + 20; a2's file missing -> missingFiles == 1.
         assert out["summary"] == {
             "count": 2, "totalSizeBytes": 30, "missingFiles": 1,
-            "backupDir": str(backup_dir),
+            "backupDir": str(backup_dir), "backupStores": ["current"],
         }
 
 
@@ -599,7 +635,7 @@ def test_list_kmind_backups_empty_is_not_an_error() -> None:
         assert out["backups"] == []
         assert out["summary"] == {
             "count": 0, "totalSizeBytes": 0, "missingFiles": 0,
-            "backupDir": str(backup_dir),
+            "backupDir": str(backup_dir), "backupStores": [],
         }
 
 
@@ -662,6 +698,26 @@ def test_list_kmind_backups_path_escape_counts_missing() -> None:
         assert out["summary"]["missingFiles"] == 1
         assert out["backups"][0]["backupPath"] == "../outside.kmind"
         assert out["backups"][0]["existsOnDisk"] is False
+
+
+def test_list_kmind_backups_reads_legacy_store() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        current_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        legacy_dir = data_dir.joinpath(*K.LEGACY_BACKUP_REL_DIRS[0])
+        legacy_dir.mkdir(parents=True)
+        _write_kmind(legacy_dir / "legacy.kmind", _sample_tree())
+        K._save_backup_index(legacy_dir, [{
+            "docId": "docA", "backupPath": "legacy.kmind",
+            "operation": "add-node", "createdAt": "2026-06-01T00:00:00+00:00",
+            "sha256Before": "sha", "sizeBytes": 1, "source": "assets/map.kmind",
+        }])
+
+        out = K.list_kmind_backups(current_dir, K._load_backup_view(data_dir), "docA")
+        assert out["summary"]["backupStores"] == ["legacy"]
+        assert out["backups"][0]["backupStore"] == "legacy"
+        assert out["backups"][0]["backupDir"] == str(legacy_dir)
+        assert out["backups"][0]["existsOnDisk"] is True
 
 
 # --- P3: siyuan_kmind_restore_backup (write, dry-run-first) -----------------
@@ -780,6 +836,26 @@ def _restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
     return data_dir, asset, good_sha, index
 
 
+def _legacy_restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
+    data_dir = Path(tmp)
+    legacy_dir = data_dir.joinpath(*K.LEGACY_BACKUP_REL_DIRS[0])
+    legacy_dir.mkdir(parents=True)
+    (data_dir / "assets").mkdir()
+
+    good_sha = _write_kmind(legacy_dir / "good.kmind", _sample_tree())
+    K._save_backup_index(legacy_dir, [{
+        "source": "assets/map.kmind", "docId": "docA", "backupPath": "good.kmind",
+        "operation": "add-node", "createdAt": "2026-06-01T00:00:00+00:00",
+        "sha256Before": good_sha, "sizeBytes": (legacy_dir / "good.kmind").stat().st_size,
+    }])
+
+    cur_tree = _sample_tree()
+    cur_tree["root"]["data"]["text"] = "<p>DAMAGED</p>"
+    asset = data_dir / "assets" / "map.kmind"
+    _write_kmind(asset, cur_tree)
+    return data_dir, asset, good_sha, K._load_backup_view(data_dir)
+
+
 def test_restore_kmind_backup_dry_run_writes_nothing() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         data_dir, asset, good_sha, index = _restore_fixture(tmp)
@@ -855,6 +931,28 @@ def test_restore_kmind_backup_expected_sha_mismatch_aborts() -> None:
         # Aborted before any write: asset unchanged, no before-restore backup made.
         assert asset.read_bytes() == cur_bytes
         assert sorted(p.name for p in backup_dir.iterdir()) == before_files
+
+
+def test_restore_kmind_backup_reads_legacy_and_writes_new_backup() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir, asset, good_sha, index = _legacy_restore_fixture(tmp)
+        current_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        legacy_dir = data_dir.joinpath(*K.LEGACY_BACKUP_REL_DIRS[0])
+        cur_sha = K._sha256(asset.read_bytes())
+
+        out = K.restore_kmind_backup(
+            asset_abs=asset, data_dir=data_dir, asset_rel="assets/map.kmind",
+            doc_id="docA", index=index, backup_path="good.kmind", dry_run=False,
+        )
+
+        assert out["dryRun"] is False
+        assert out["sha256After"] == good_sha
+        assert out["backup"]["backupStore"] == "legacy"
+        assert out["backupCreated"]
+        assert (current_dir / out["backupCreated"]).exists()
+        assert not (legacy_dir / out["backupCreated"]).exists()
+        disk_index = json.loads((current_dir / K.BACKUP_INDEX_NAME).read_text())
+        assert any(e["operation"] == "restore" and e["sha256Before"] == cur_sha for e in disk_index)
 
 
 def main() -> None:

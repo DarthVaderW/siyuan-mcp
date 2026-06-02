@@ -47,8 +47,7 @@ Configure these values in the same MCP entry:
 ```text
 SIYUAN_BASE_URL=http://127.0.0.1:6806
 SIYUAN_TOKEN=<your SiYuan API token>
-SIYUAN_DEFAULT_NOTEBOOK=<formal/default notebook name or id>
-SIYUAN_CODEX_NOTEBOOK=CodeX
+SIYUAN_DEFAULT_NOTEBOOK=<default notebook name or id>
 SIYUAN_ALLOW_RAW_API=false
 ```
 

@@ -1,19 +1,16 @@
 {
   "mcpServers": {
     "siyuan": {
-      "command": "uv",
+      "command": "uvx",
       "args": [
-        "tool",
-        "run",
         "--from",
-        "git+https://github.com/DarthVaderW/siyuan-mcp.git@v0.1.10",
+        "git+https://github.com/DarthVaderW/siyuan-mcp.git@stable",
         "siyuan-mcp"
       ],
       "env_vars": [
         "SIYUAN_BASE_URL",
         "SIYUAN_TOKEN",
         "SIYUAN_DEFAULT_NOTEBOOK",
-        "SIYUAN_CODEX_NOTEBOOK",
         "SIYUAN_ALLOW_RAW_API"
       ]
     }

@@ -1,6 +1,7 @@
 # Tool Contract
 
-这份文档记录当前 SiYuan MCP 暴露给上层 skill 的工具语义。原则是：MCP 提供思源能力，skill 决定业务流程。
+这份文档记录当前 SiYuan MCP 暴露给上层调用方的工具语义。原则是：
+MCP 提供通用思源能力，上层调用方决定具体业务流程。
 
 ## 连接和笔记本
 
@@ -24,7 +25,7 @@
 
 ### `siyuan_ensure_doc`
 
-按 human-readable path 查找或创建文档，并可设置 `custom-*` 属性。上层 skill 应优先使用它创建论文、作者、单位、Codex 方案等主键文档。
+按 human-readable path 查找或创建文档，并可设置 `custom-*` 属性。上层调用方可用它创建有稳定路径和元数据的主键文档。
 
 ### `siyuan_get_doc_id_by_path`
 
@@ -92,15 +93,15 @@
 
 ```json
 {
-  "custom-type": "paper",
-  "custom-zotero-item-key": "ABCD1234",
-  "custom-arxiv-id": "2501.00001"
+  "custom-type": "project-note",
+  "custom-project": "example",
+  "custom-status": "active"
 }
 ```
 
 ### `siyuan_find_docs_by_attrs`
 
-查找 IAL 中包含指定属性的文档根。适合按 `custom-type`、`custom-project`、`custom-arxiv-id`、`custom-zotero-item-key` 等稳定元数据查找。DOI 留在 Zotero 元数据中，不作为思源核心检索字段。
+查找 IAL 中包含指定属性的文档根。适合按 `custom-type`、`custom-project`、`custom-status` 等稳定元数据查找。
 
 ### `siyuan_sql_query`
 
@@ -110,18 +111,11 @@
 
 基于 SQL 的简单文本搜索。
 
-## 经验和日志
+## 文档追加
 
 ### `siyuan_upsert_doc_section`
 
-确保文档存在，然后追加一个标题段落。适合日记、Codex 解决方案、阅读日志。
-
-### `siyuan_append_experience_note`（legacy）
-
-历史兼容包装器，会使用旧的 `CodeX/MCP/经验库` 默认路径和经验属性。
-新 skill 不应依赖它；应先在 skill 里判断经验卡片分类和路径，然后直接调用
-`siyuan_upsert_doc_section`。这样 MCP 保持通用，经验库结构留在 workflow skill
-里维护。
+确保文档存在，然后追加一个标题段落。适合日志、变更记录、普通文档追加。
 
 ## 思源数据库/属性视图
 
@@ -149,7 +143,7 @@
 
 ### `siyuan_av_sort_key`
 
-调整数据库全局字段顺序。正式论文表应把 `block` 类型的“主键”字段放在第一位。
+调整数据库全局字段顺序。通常应把 `block` 类型的“主键”字段放在第一位。
 
 ### `siyuan_av_sort_view_key`
 
@@ -172,7 +166,7 @@
 
 ### `siyuan_av_ensure_bound_rows`
 
-确保已有思源文档或块作为数据库主键行存在，然后写入字段。论文总表、领域表、作者表、单位表应优先使用这个工具，因为它保留“笔记即主键”的结构。
+确保已有思源文档或块作为数据库主键行存在，然后写入字段。需要保留“文档即主键”结构时应优先使用这个工具。
 
 ```json
 {
@@ -180,7 +174,7 @@
   "databaseBlockId": "数据库块ID",
   "rows": [
     {
-      "blockId": "论文笔记文档ID",
+      "blockId": "主键文档ID",
       "values": {
         "字段ID": "字段值"
       }
@@ -189,7 +183,7 @@
 }
 ```
 
-工具会先通过 `getAttributeViewItemIDsByBoundIDs` 检查是否已绑定，缺失时再调用 `addAttributeViewBlocks`，因此重复调用不会重复添加同一篇论文。
+工具会先通过 `getAttributeViewItemIDsByBoundIDs` 检查是否已绑定，缺失时再调用 `addAttributeViewBlocks`，因此重复调用不会重复添加同一个主键文档。
 
 ### `siyuan_av_set_cell`
 
@@ -197,7 +191,13 @@
 
 ### `siyuan_av_batch_set_cells`
 
-批量更新多个单元格。适合论文元数据同步时一次写入多个字段。
+批量更新多个单元格。适合一次写入多个字段。
+
+## Deprecated compatibility tools
+
+### `siyuan_append_experience_note`（legacy）
+
+历史兼容包装器，会使用旧的经验库默认路径和经验属性。新的上层调用方不应依赖它；应先判断目标文档路径，然后直接调用 `siyuan_upsert_doc_section`。
 
 ## 兜底 API
 

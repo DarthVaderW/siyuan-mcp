@@ -29,14 +29,7 @@
     "siyuan_default_notebook": {
       "type": "string",
       "title": "Default notebook",
-      "description": "Formal/default SiYuan notebook name or id.",
-      "required": true
-    },
-    "siyuan_codex_notebook": {
-      "type": "string",
-      "title": "CodeX notebook",
-      "description": "Notebook name or id for tests, drafts, and Codex notes.",
-      "default": "CodeX",
+      "description": "Default SiYuan notebook name or id.",
       "required": true
     },
     "siyuan_allow_raw_api": {
