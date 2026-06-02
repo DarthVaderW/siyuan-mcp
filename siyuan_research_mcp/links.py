@@ -14,6 +14,7 @@ MAX_CANDIDATE_LINKS = 10
 normalize_doc_path = core.normalize_doc_path
 extract_doc_ids = core.extract_doc_ids
 resolve_notebook_id = core.resolve_notebook_id
+get_doc_ids_by_path = core.get_doc_ids_by_path
 
 
 def validate_block_id(id: str) -> str:
@@ -70,17 +71,6 @@ def format_doc_link(doc: Mapping[str, Any], label: str | None = None) -> dict[st
         "url": link["url"],
         "markdown": link["markdown"],
     }
-
-
-def get_doc_ids_by_path(notebook_id: str, path: str) -> list[str]:
-    data = core.call_siyuan(
-        "/api/filetree/getIDsByHPath",
-        {
-            "notebook": notebook_id,
-            "path": normalize_doc_path(path),
-        },
-    )
-    return extract_doc_ids(data)
 
 
 def candidate_links(

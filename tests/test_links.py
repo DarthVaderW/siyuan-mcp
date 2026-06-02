@@ -69,6 +69,11 @@ def test_format_block_link() -> None:
         pass
 
 
+def test_siyuan_make_block_link() -> None:
+    result = L.siyuan_make_block_link("20260602233246-8islm9u", "经验库 README")
+    assert result["markdown"] == "[经验库 README](siyuan://blocks/20260602233246-8islm9u)"
+
+
 def test_derive_label_from_hpath() -> None:
     assert L.derive_label_from_hpath("/MCP/经验库/README") == "README"
     assert L.derive_label_from_hpath("MCP//经验库//README/") == "README"
