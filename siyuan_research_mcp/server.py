@@ -352,7 +352,8 @@ def siyuan_append_experience_note(
 
     New callers should choose the correct experience-card path and call
     `siyuan_upsert_doc_section` directly. This wrapper intentionally preserves
-    the historical experience-library defaults for older clients.
+    the historical experience-library defaults for older clients. It is
+    deprecated and scheduled for removal in v0.2.
     """
     return siyuan_upsert_doc_section(
         path=notePath,

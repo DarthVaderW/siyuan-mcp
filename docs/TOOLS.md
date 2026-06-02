@@ -35,6 +35,16 @@ MCP 提供通用思源能力，上层调用方决定具体业务流程。
 
 根据文档 ID 返回 human-readable path 和底层 storage path。
 
+## 内部链接
+
+### `siyuan_make_block_link`
+
+根据块或文档 ID 生成标准 `siyuan://blocks/...` Markdown 链接。调用方传入显示文本，工具负责校验 ID 并转义链接标签。
+
+### `siyuan_make_doc_link`
+
+根据 human-readable path 解析文档 ID，并生成标准文档链接。路径命中多个文档时不会猜测；返回候选链接列表，由调用方或用户选择。
+
 ## 文档级操作
 
 这些工具走思源 filetree API，适合操作文档根。不要用 `siyuan_delete_block` 删除文档根，除非你明确想要块级行为。
@@ -193,11 +203,55 @@ MCP 提供通用思源能力，上层调用方决定具体业务流程。
 
 批量更新多个单元格。适合一次写入多个字段。
 
+## KMind
+
+KMind 工具操作思源文档关联的 `.kmind` 资产文件。读取工具不写文件；写入工具默认带备份，并支持 `dry_run` 和 `expected_sha256` 做人工确认与并发保护。备份默认写入 `storage/siyuan-mcp-kmind-backups`，历史 `storage/codex-kmind-backups` 只读兼容。
+
+### `siyuan_kmind_find`
+
+通过文档路径或文档 ID 定位 KMind 资产，返回文档、资产路径、大小和 sha256 等元数据。
+
+### `siyuan_kmind_read`
+
+读取 KMind 并返回结构化 outline，可限制深度并选择是否包含样式字段。
+
+### `siyuan_kmind_export_outline`
+
+把 KMind 导出为 Markdown bullet outline。适合人工审阅或把脑图内容转成普通文本。
+
+### `siyuan_kmind_search_nodes`
+
+按节点文本搜索，返回匹配节点的 uid、文本和从根节点到该节点的路径。
+
+### `siyuan_kmind_add_node`
+
+向根节点或指定父节点追加子节点，可同时添加一层子节点。写入前可用 `dry_run=true` 预览；正式写入建议传 `expected_sha256`。
+
+### `siyuan_kmind_style_node`
+
+修改单个节点的安全样式字段。节点内容、移动、删除和批量结构改写不属于这个工具的职责。
+
+### `siyuan_kmind_validate`
+
+校验 KMind JSON 是否存在合法根节点，返回节点数量、sha256 和顶层字段。
+
+### `siyuan_kmind_diff`
+
+把当前 KMind 与指定备份、sha256 或外部 `.kmind` 文件比较。默认选择该文档最新备份；无参考版本时返回明确状态。
+
+### `siyuan_kmind_list_backups`
+
+列出某个 KMind 文档的备份，包含当前备份目录和历史只读备份目录中的记录。
+
+### `siyuan_kmind_restore_backup`
+
+从同一文档的备份恢复 KMind。默认 `dry_run=true`，必须显式指定备份文件名或 sha256；正式恢复会先给当前文件再做一次备份。
+
 ## Deprecated compatibility tools
 
 ### `siyuan_append_experience_note`（legacy）
 
-历史兼容包装器，会使用旧的经验库默认路径和经验属性。新的上层调用方不应依赖它；应先判断目标文档路径，然后直接调用 `siyuan_upsert_doc_section`。
+历史兼容包装器，会使用旧的经验库默认路径和经验属性。新的上层调用方不应依赖它；应先判断目标文档路径，然后直接调用 `siyuan_upsert_doc_section`。计划在 v0.2 删除。
 
 ## 兜底 API
 
