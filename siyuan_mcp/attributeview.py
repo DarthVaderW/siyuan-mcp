@@ -1,7 +1,7 @@
 """SiYuan AttributeView (database) tools.
 
 Importing this module registers the ``siyuan_av_*`` tools on the shared
-``mcp`` instance from :mod:`siyuan_research_mcp.core`.
+``mcp`` instance from :mod:`siyuan_mcp.core`.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from typing import Any, Literal
 
-from siyuan_research_mcp.core import call_siyuan, generate_node_id, mcp
+from siyuan_mcp.core import call_siyuan, generate_node_id, mcp
 
 
 def get_attribute_view(av_id: str) -> dict[str, Any]:

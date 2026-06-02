@@ -20,5 +20,5 @@ if not exist "%TEMP%" mkdir "%TEMP%"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
 
 pushd "%ROOT%"
-"%UV_EXE%" run python -m siyuan_research_mcp.server
+"%UV_EXE%" run python -m siyuan_mcp.server
 popd

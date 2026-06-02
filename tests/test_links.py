@@ -7,8 +7,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from siyuan_research_mcp import core as C
-from siyuan_research_mcp import links as L
+from siyuan_mcp import core as C
+from siyuan_mcp import links as L
 
 
 def response_key(endpoint: str, payload: dict[str, Any]) -> tuple[str, str]:
@@ -48,12 +48,12 @@ def test_validate_block_id() -> None:
 
 
 def test_format_block_link() -> None:
-    result = L.format_block_link("20260602233246-8islm9u", "经验库 README")
+    result = L.format_block_link("20260602233246-8islm9u", "Knowledge README")
     assert result == {
         "id": "20260602233246-8islm9u",
-        "label": "经验库 README",
+        "label": "Knowledge README",
         "url": "siyuan://blocks/20260602233246-8islm9u",
-        "markdown": "[经验库 README](siyuan://blocks/20260602233246-8islm9u)",
+        "markdown": "[Knowledge README](siyuan://blocks/20260602233246-8islm9u)",
     }
 
     escaped = L.format_block_link("20260602233246-8islm9u", r"a[b]c\\d")
@@ -70,20 +70,20 @@ def test_format_block_link() -> None:
 
 
 def test_siyuan_make_block_link() -> None:
-    result = L.siyuan_make_block_link("20260602233246-8islm9u", "经验库 README")
-    assert result["markdown"] == "[经验库 README](siyuan://blocks/20260602233246-8islm9u)"
+    result = L.siyuan_make_block_link("20260602233246-8islm9u", "Knowledge README")
+    assert result["markdown"] == "[Knowledge README](siyuan://blocks/20260602233246-8islm9u)"
 
 
 def test_derive_label_from_hpath() -> None:
-    assert L.derive_label_from_hpath("/MCP/经验库/README") == "README"
-    assert L.derive_label_from_hpath("MCP//经验库//README/") == "README"
+    assert L.derive_label_from_hpath("/MCP/Knowledge/README") == "README"
+    assert L.derive_label_from_hpath("MCP//Knowledge//README/") == "README"
     assert L.derive_label_from_hpath("/") == "SiYuan document"
     assert L.derive_label_from_hpath("") == "SiYuan document"
 
 
 def test_normalize_doc_path() -> None:
-    assert L.normalize_doc_path("MCP\\经验库//README") == "/MCP/经验库/README"
-    assert L.normalize_doc_path("/MCP/经验库/README") == "/MCP/经验库/README"
+    assert L.normalize_doc_path("MCP\\Knowledge//README") == "/MCP/Knowledge/README"
+    assert L.normalize_doc_path("/MCP/Knowledge/README") == "/MCP/Knowledge/README"
 
     try:
         L.normalize_doc_path(" ")
@@ -93,21 +93,21 @@ def test_normalize_doc_path() -> None:
 
 
 def test_format_doc_link() -> None:
-    result = L.format_doc_link({"id": "20260602233246-8islm9u", "hpath": "/MCP/经验库/README"})
+    result = L.format_doc_link({"id": "20260602233246-8islm9u", "hpath": "/MCP/Knowledge/README"})
     assert result["found"] is True
     assert result["ambiguous"] is False
     assert result["label"] == "README"
     assert result["markdown"] == "[README](siyuan://blocks/20260602233246-8islm9u)"
 
     custom = L.format_doc_link(
-        {"id": "20260602233246-8islm9u", "hpath": "/MCP/经验库/README"},
-        "经验库 README",
+        {"id": "20260602233246-8islm9u", "hpath": "/MCP/Knowledge/README"},
+        "Knowledge README",
     )
-    assert custom["label"] == "经验库 README"
-    assert custom["markdown"] == "[经验库 README](siyuan://blocks/20260602233246-8islm9u)"
+    assert custom["label"] == "Knowledge README"
+    assert custom["markdown"] == "[Knowledge README](siyuan://blocks/20260602233246-8islm9u)"
 
     try:
-        L.format_doc_link({"hpath": "/MCP/经验库/README"})
+        L.format_doc_link({"hpath": "/MCP/Knowledge/README"})
         raise AssertionError("expected missing id error")
     except ValueError as error:
         assert "missing 'id'" in str(error)
@@ -126,15 +126,15 @@ def test_make_doc_link_found() -> None:
         response_key("/api/notebook/lsNotebooks", {}): [{"id": "box-id", "name": "CodeX"}],
         response_key(
             "/api/filetree/getIDsByHPath",
-            {"notebook": "box-id", "path": "/MCP/经验库/README"},
+            {"notebook": "box-id", "path": "/MCP/Knowledge/README"},
         ): [{"id": "20260602233246-8islm9u"}],
         response_key(
             "/api/filetree/getHPathByID",
             {"id": "20260602233246-8islm9u"},
-        ): "/MCP/经验库/README",
+        ): "/MCP/Knowledge/README",
     }
     with fake_siyuan(responses):
-        result = L.siyuan_make_doc_link("/MCP/经验库/README")
+        result = L.siyuan_make_doc_link("/MCP/Knowledge/README")
 
     assert result["found"] is True
     assert result["ambiguous"] is False
@@ -217,15 +217,15 @@ def test_make_doc_link_explicit_notebook_id_skips_notebook_list() -> None:
     responses = {
         response_key(
             "/api/filetree/getIDsByHPath",
-            {"notebook": notebook_id, "path": "/MCP/经验库/README"},
+            {"notebook": notebook_id, "path": "/MCP/Knowledge/README"},
         ): [{"id": "20260602233246-8islm9u"}],
         response_key(
             "/api/filetree/getHPathByID",
             {"id": "20260602233246-8islm9u"},
-        ): "/MCP/经验库/README",
+        ): "/MCP/Knowledge/README",
     }
     with fake_siyuan(responses):
-        result = L.siyuan_make_doc_link("/MCP/经验库/README", notebook=notebook_id)
+        result = L.siyuan_make_doc_link("/MCP/Knowledge/README", notebook=notebook_id)
 
     assert result["found"] is True
     assert result["notebook"] == notebook_id
@@ -234,7 +234,7 @@ def test_make_doc_link_explicit_notebook_id_skips_notebook_list() -> None:
 def test_make_doc_link_requires_notebook() -> None:
     with fake_siyuan({}, default_notebook=""):
         try:
-            L.siyuan_make_doc_link("/MCP/经验库/README")
+            L.siyuan_make_doc_link("/MCP/Knowledge/README")
             raise AssertionError("expected notebook error")
         except ValueError as error:
             assert "Notebook is required" in str(error)

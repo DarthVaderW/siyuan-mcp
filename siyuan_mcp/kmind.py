@@ -8,7 +8,7 @@ concurrency (sha256) and automatic backups for writes.
 
 Workflow decisions belong in callers, not here.
 Importing this module registers the ``siyuan_kmind_*`` tools on the shared
-``mcp`` instance from :mod:`siyuan_research_mcp.core`.
+``mcp`` instance from :mod:`siyuan_mcp.core`.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from siyuan_research_mcp.core import call_siyuan, current_default_notebook, mcp
+from siyuan_mcp.core import call_siyuan, current_default_notebook, mcp
 
 # --- Constants ---------------------------------------------------------------
 

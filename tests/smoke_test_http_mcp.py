@@ -48,7 +48,7 @@ def main() -> None:
     command = [
         sys.executable,
         "-m",
-        "siyuan_research_mcp.server",
+        "siyuan_mcp.server",
         "--transport",
         "streamable-http",
         "--host",

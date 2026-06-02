@@ -1,8 +1,8 @@
 """SiYuan MCP server: documents, blocks, search, attributes, and AttributeView.
 
 Shared infrastructure (the FastMCP instance, runtime config, and the SiYuan
-HTTP client) lives in :mod:`siyuan_research_mcp.core`. AttributeView/database
-tools live in :mod:`siyuan_research_mcp.attributeview`. This module defines the
+HTTP client) lives in :mod:`siyuan_mcp.core`. AttributeView/database
+tools live in :mod:`siyuan_mcp.attributeview`. This module defines the
 document/block/search tools, the runtime entry point, and registers the other
 tool modules.
 """
@@ -14,7 +14,7 @@ import os
 import re
 from typing import Any, Literal
 
-from siyuan_research_mcp.core import (
+from siyuan_mcp.core import (
     MCP_HOST,
     MCP_PATH,
     MCP_PORT,
@@ -612,9 +612,9 @@ def dig(data: Any, *keys: str) -> Any:
 
 # Import side effect: registers the siyuan_av_* / siyuan_kmind_* tools on the
 # shared mcp instance.
-from siyuan_research_mcp import attributeview as attributeview  # noqa: E402,F401
-from siyuan_research_mcp import kmind as kmind  # noqa: E402,F401
-from siyuan_research_mcp import links as links  # noqa: E402,F401
+from siyuan_mcp import attributeview as attributeview  # noqa: E402,F401
+from siyuan_mcp import kmind as kmind  # noqa: E402,F401
+from siyuan_mcp import links as links  # noqa: E402,F401
 
 
 def main() -> None:

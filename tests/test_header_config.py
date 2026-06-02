@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from siyuan_research_mcp import core, server
+from siyuan_mcp import core, server
 
 
 @contextmanager

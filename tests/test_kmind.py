@@ -9,7 +9,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from siyuan_research_mcp import kmind as K
+from siyuan_mcp import kmind as K
 
 
 def test_html_text_and_rich_text() -> None:

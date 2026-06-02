@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from siyuan_research_mcp import core
+from siyuan_mcp import core
 
 mcp = core.mcp
 BLOCK_ID_RE = core.SIYUAN_ID_RE

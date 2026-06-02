@@ -9,7 +9,7 @@ export UV_CACHE_DIR="${ROOT}/.uv-cache"
 mkdir -p "$TMPDIR" "$UV_CACHE_DIR"
 
 cd "$ROOT"
-exec uv run python -m siyuan_research_mcp.server \
+exec uv run python -m siyuan_mcp.server \
   --transport streamable-http \
   --host "${SIYUAN_MCP_HOST:-127.0.0.1}" \
   --port "${SIYUAN_MCP_PORT:-6816}" \

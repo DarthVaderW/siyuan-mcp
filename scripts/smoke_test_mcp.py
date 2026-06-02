@@ -11,7 +11,7 @@ from mcp.client.stdio import stdio_client
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER = ROOT / "siyuan_research_mcp" / "server.py"
+SERVER = ROOT / "siyuan_mcp" / "server.py"
 
 
 def codex_config_params(env: dict[str, str]) -> StdioServerParameters:
@@ -38,7 +38,7 @@ async def run(call_ping: bool, use_config_command: bool) -> int:
         env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), env.get("PYTHONPATH", "")]))
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "siyuan_research_mcp.server"],
+            args=["-m", "siyuan_mcp.server"],
             env=env,
         )
 
@@ -89,7 +89,7 @@ async def run_with_expectations(args: argparse.Namespace) -> int:
         env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), env.get("PYTHONPATH", "")]))
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "siyuan_research_mcp.server"],
+            args=["-m", "siyuan_mcp.server"],
             env=env,
         )
 
