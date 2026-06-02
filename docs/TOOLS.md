@@ -241,7 +241,7 @@ KMind 工具操作思源文档关联的 `.kmind` 资产文件。读取工具不�
 
 ### `siyuan_kmind_list_backups`
 
-列出某个 KMind 文档的备份，包含当前备份目录和历史只读备份目录中的记录。
+列出某个 KMind 文档在当前 `siyuan-mcp-kmind-backups` 备份目录中的记录。
 
 ### `siyuan_kmind_restore_backup`
 
