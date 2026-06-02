@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -21,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 VERSION = "0.1.11"
 ROOT_DIR = Path(__file__).resolve().parents[1]
+SIYUAN_ID_RE = re.compile(r"^\d{14}-[0-9a-z]{7}$")
 
 
 def load_dotenv(path: Path) -> None:
@@ -200,6 +202,90 @@ def call_siyuan(endpoint: str, payload: dict[str, Any] | None = None) -> Any:
     if isinstance(decoded, dict) and "data" in decoded:
         return decoded["data"]
     return decoded
+
+
+def looks_like_siyuan_id(value: str) -> bool:
+    return bool(SIYUAN_ID_RE.match(value.strip()))
+
+
+def normalize_doc_path(value: str) -> str:
+    clean = re.sub(r"/+", "/", value.strip().replace("\\", "/"))
+    if not clean:
+        raise ValueError("Document path cannot be empty.")
+    return clean if clean.startswith("/") else f"/{clean}"
+
+
+def extract_doc_ids(data: Any) -> list[str]:
+    """Extract all document ids returned by /api/filetree/getIDsByHPath."""
+    raw_ids: list[Any] = []
+    if isinstance(data, list):
+        raw_ids = data
+    elif isinstance(data, dict):
+        ids = data.get("ids")
+        raw_ids = ids if isinstance(ids, list) else [data.get("id")]
+
+    result: list[str] = []
+    for item in raw_ids:
+        value = item.get("id") if isinstance(item, dict) else item
+        if value:
+            result.append(str(value))
+    return result
+
+
+def get_doc_ids_by_path(notebook_id: str, path: str) -> list[str]:
+    data = call_siyuan(
+        "/api/filetree/getIDsByHPath",
+        {
+            "notebook": notebook_id,
+            "path": normalize_doc_path(path),
+        },
+    )
+    return extract_doc_ids(data)
+
+
+def get_doc_id_by_path(notebook_id: str, path: str) -> str | None:
+    ids = get_doc_ids_by_path(notebook_id, path)
+    return ids[0] if ids else None
+
+
+def get_hpath_by_id(id: str) -> str | None:
+    data = call_siyuan("/api/filetree/getHPathByID", {"id": id})
+    return str(data) if data else None
+
+
+def extract_notebooks(data: Any) -> list[dict[str, Any]]:
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        for key in ("notebooks", "boxes"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def find_notebook(id_or_name: str | None) -> dict[str, Any] | None:
+    if not id_or_name:
+        return None
+
+    data = call_siyuan("/api/notebook/lsNotebooks", {})
+    for notebook in extract_notebooks(data):
+        if notebook.get("id") == id_or_name or notebook.get("name") == id_or_name:
+            return notebook
+    return None
+
+
+def resolve_notebook_id(id_or_name: str | None = None) -> str:
+    candidate = id_or_name or current_default_notebook()
+    if not candidate:
+        raise ValueError("Notebook is required. Provide notebook or set SIYUAN_DEFAULT_NOTEBOOK.")
+
+    candidate = candidate.strip()
+    if looks_like_siyuan_id(candidate):
+        return candidate
+
+    notebook = find_notebook(candidate)
+    return str(notebook.get("id") if notebook else candidate)
 
 
 def generate_node_id() -> str:

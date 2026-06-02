@@ -26,7 +26,13 @@ from siyuan_research_mcp.core import (
     current_codex_notebook,
     current_default_notebook,
     current_token,
+    extract_notebooks,
+    find_notebook,
+    get_doc_id_by_path,
+    get_hpath_by_id,
     mcp,
+    normalize_doc_path,
+    resolve_notebook_id,
     stable_json,
 )
 
@@ -530,54 +536,6 @@ def siyuan_call_api(endpoint: str, payload: dict[str, Any] | None = None) -> dic
     return {"endpoint": endpoint, "result": data}
 
 
-def find_notebook(id_or_name: str | None) -> dict[str, Any] | None:
-    if not id_or_name:
-        return None
-
-    data = call_siyuan("/api/notebook/lsNotebooks", {})
-    for notebook in extract_notebooks(data):
-        if notebook.get("id") == id_or_name or notebook.get("name") == id_or_name:
-            return notebook
-    return None
-
-
-def resolve_notebook_id(id_or_name: str | None = None) -> str:
-    candidate = id_or_name or current_default_notebook()
-    if not candidate:
-        raise ValueError("Notebook is required. Provide notebook or set SIYUAN_DEFAULT_NOTEBOOK.")
-
-    notebook = find_notebook(candidate)
-    return str(notebook.get("id") if notebook else candidate)
-
-
-def get_doc_id_by_path(notebook_id: str, path: str) -> str | None:
-    data = call_siyuan(
-        "/api/filetree/getIDsByHPath",
-        {
-            "notebook": notebook_id,
-            "path": normalize_doc_path(path),
-        },
-    )
-
-    if isinstance(data, list):
-        first = data[0] if data else None
-        return first.get("id") if isinstance(first, dict) else first
-
-    if isinstance(data, dict):
-        ids = data.get("ids")
-        if isinstance(ids, list):
-            first = ids[0] if ids else None
-            return first.get("id") if isinstance(first, dict) else first
-        return data.get("id")
-
-    return None
-
-
-def get_hpath_by_id(id: str) -> str | None:
-    data = call_siyuan("/api/filetree/getHPathByID", {"id": id})
-    return str(data) if data else None
-
-
 def find_doc_row_by_id(id: str) -> dict[str, Any] | None:
     rows = call_siyuan(
         "/api/query/sql",
@@ -590,17 +548,6 @@ def find_doc_row_by_id(id: str) -> dict[str, Any] | None:
 
 def flush_transaction() -> None:
     call_siyuan("/api/sqlite/flushTransaction", {})
-
-
-def extract_notebooks(data: Any) -> list[dict[str, Any]]:
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    if isinstance(data, dict):
-        for key in ("notebooks", "boxes"):
-            value = data.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-    return []
 
 
 def public_notebook(notebook: dict[str, Any]) -> dict[str, Any]:
@@ -656,13 +603,6 @@ def extract_block_ids(data: Any) -> list[str]:
         value = data.get("id") or data.get("blockID")
         return [str(value)] if value else []
     return []
-
-
-def normalize_doc_path(value: str) -> str:
-    clean = re.sub(r"/+", "/", value.strip().replace("\\", "/"))
-    if not clean:
-        raise ValueError("Document path cannot be empty.")
-    return clean if clean.startswith("/") else f"/{clean}"
 
 
 def assert_attr_key(key: str) -> None:

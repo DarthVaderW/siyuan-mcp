@@ -2,31 +2,37 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from siyuan_research_mcp import core as C
 from siyuan_research_mcp import links as L
 
 
+def response_key(endpoint: str, payload: dict[str, Any]) -> tuple[str, str]:
+    return (endpoint, json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
 @contextmanager
-def fake_siyuan(responses: dict[tuple[str, str], Any]) -> Iterator[None]:
-    original_call = L.call_siyuan
-    original_default = L.current_default_notebook
+def fake_siyuan(responses: dict[tuple[str, str], Any], default_notebook: str = "CodeX") -> Iterator[None]:
+    original_call = C.call_siyuan
+    original_default = C.current_default_notebook
 
     def call(endpoint: str, payload: dict[str, Any]) -> Any:
-        key = (endpoint, str(payload))
+        key = response_key(endpoint, payload)
         if key not in responses:
             raise AssertionError(f"unexpected SiYuan call: {endpoint} {payload}")
         return responses[key]
 
-    L.call_siyuan = call  # type: ignore[assignment]
-    L.current_default_notebook = lambda: "CodeX"  # type: ignore[assignment]
+    C.call_siyuan = call  # type: ignore[assignment]
+    C.current_default_notebook = lambda: default_notebook  # type: ignore[assignment]
     try:
         yield
     finally:
-        L.call_siyuan = original_call  # type: ignore[assignment]
-        L.current_default_notebook = original_default  # type: ignore[assignment]
+        C.call_siyuan = original_call  # type: ignore[assignment]
+        C.current_default_notebook = original_default  # type: ignore[assignment]
 
 
 def test_validate_block_id() -> None:
@@ -52,6 +58,9 @@ def test_format_block_link() -> None:
 
     escaped = L.format_block_link("20260602233246-8islm9u", r"a[b]c\\d")
     assert escaped["markdown"] == r"[a\[b\]c\\\\d](siyuan://blocks/20260602233246-8islm9u)"
+
+    newline = L.format_block_link("20260602233246-8islm9u", "a\nb")
+    assert newline["markdown"] == "[a b](siyuan://blocks/20260602233246-8islm9u)"
 
     try:
         L.format_block_link("20260602233246-8islm9u", " ")
@@ -92,6 +101,12 @@ def test_format_doc_link() -> None:
     assert custom["label"] == "经验库 README"
     assert custom["markdown"] == "[经验库 README](siyuan://blocks/20260602233246-8islm9u)"
 
+    try:
+        L.format_doc_link({"hpath": "/MCP/经验库/README"})
+        raise AssertionError("expected missing id error")
+    except ValueError as error:
+        assert "missing 'id'" in str(error)
+
 
 def test_extract_doc_ids() -> None:
     assert L.extract_doc_ids(["a", {"id": "b"}, None, {}]) == ["a", "b"]
@@ -103,14 +118,14 @@ def test_extract_doc_ids() -> None:
 
 def test_make_doc_link_found() -> None:
     responses = {
-        ("/api/notebook/lsNotebooks", "{}"): [{"id": "box-id", "name": "CodeX"}],
-        (
+        response_key("/api/notebook/lsNotebooks", {}): [{"id": "box-id", "name": "CodeX"}],
+        response_key(
             "/api/filetree/getIDsByHPath",
-            "{'notebook': 'box-id', 'path': '/MCP/经验库/README'}",
+            {"notebook": "box-id", "path": "/MCP/经验库/README"},
         ): [{"id": "20260602233246-8islm9u"}],
-        (
+        response_key(
             "/api/filetree/getHPathByID",
-            "{'id': '20260602233246-8islm9u'}",
+            {"id": "20260602233246-8islm9u"},
         ): "/MCP/经验库/README",
     }
     with fake_siyuan(responses):
@@ -125,10 +140,10 @@ def test_make_doc_link_found() -> None:
 
 def test_make_doc_link_missing() -> None:
     responses = {
-        ("/api/notebook/lsNotebooks", "{}"): [{"id": "box-id", "name": "CodeX"}],
-        (
+        response_key("/api/notebook/lsNotebooks", {}): [{"id": "box-id", "name": "CodeX"}],
+        response_key(
             "/api/filetree/getIDsByHPath",
-            "{'notebook': 'box-id', 'path': '/missing'}",
+            {"notebook": "box-id", "path": "/missing"},
         ): [],
     }
     with fake_siyuan(responses):
@@ -146,18 +161,18 @@ def test_make_doc_link_missing() -> None:
 
 def test_make_doc_link_ambiguous() -> None:
     responses = {
-        ("/api/notebook/lsNotebooks", "{}"): [{"id": "box-id", "name": "CodeX"}],
-        (
+        response_key("/api/notebook/lsNotebooks", {}): [{"id": "box-id", "name": "CodeX"}],
+        response_key(
             "/api/filetree/getIDsByHPath",
-            "{'notebook': 'box-id', 'path': '/README'}",
+            {"notebook": "box-id", "path": "/README"},
         ): [{"id": "20260602233246-8islm9u"}, {"id": "20260602233315-3k8urx7"}],
-        (
+        response_key(
             "/api/filetree/getHPathByID",
-            "{'id': '20260602233246-8islm9u'}",
+            {"id": "20260602233246-8islm9u"},
         ): "/A/README",
-        (
+        response_key(
             "/api/filetree/getHPathByID",
-            "{'id': '20260602233315-3k8urx7'}",
+            {"id": "20260602233315-3k8urx7"},
         ): "/B/README",
     }
     with fake_siyuan(responses):
@@ -165,8 +180,80 @@ def test_make_doc_link_ambiguous() -> None:
 
     assert result["found"] is False
     assert result["ambiguous"] is True
-    assert result["label"] is None
+    assert result["label"] == "README"
+    assert result["candidateCount"] == 2
+    assert result["returnedCandidateCount"] == 2
+    assert result["candidatesTruncated"] is False
     assert [item["hpath"] for item in result["candidates"]] == ["/A/README", "/B/README"]
+
+
+def test_make_doc_link_explicit_notebook_name() -> None:
+    responses = {
+        response_key("/api/notebook/lsNotebooks", {}): [{"id": "box-id", "name": "Daily"}],
+        response_key(
+            "/api/filetree/getIDsByHPath",
+            {"notebook": "box-id", "path": "/Daily/2026"},
+        ): [{"id": "20260602233246-8islm9u"}],
+        response_key(
+            "/api/filetree/getHPathByID",
+            {"id": "20260602233246-8islm9u"},
+        ): "/Daily/2026",
+    }
+    with fake_siyuan(responses):
+        result = L.siyuan_make_doc_link("Daily/2026", notebook="Daily")
+
+    assert result["found"] is True
+    assert result["notebook"] == "box-id"
+    assert result["path"] == "/Daily/2026"
+
+
+def test_make_doc_link_explicit_notebook_id_skips_notebook_list() -> None:
+    notebook_id = "20260602000000-abcde00"
+    responses = {
+        response_key(
+            "/api/filetree/getIDsByHPath",
+            {"notebook": notebook_id, "path": "/MCP/经验库/README"},
+        ): [{"id": "20260602233246-8islm9u"}],
+        response_key(
+            "/api/filetree/getHPathByID",
+            {"id": "20260602233246-8islm9u"},
+        ): "/MCP/经验库/README",
+    }
+    with fake_siyuan(responses):
+        result = L.siyuan_make_doc_link("/MCP/经验库/README", notebook=notebook_id)
+
+    assert result["found"] is True
+    assert result["notebook"] == notebook_id
+
+
+def test_make_doc_link_requires_notebook() -> None:
+    with fake_siyuan({}, default_notebook=""):
+        try:
+            L.siyuan_make_doc_link("/MCP/经验库/README")
+            raise AssertionError("expected notebook error")
+        except ValueError as error:
+            assert "Notebook is required" in str(error)
+
+
+def test_candidate_links_are_capped() -> None:
+    ids = [f"202606020000{i:02d}-abcde{i:02d}" for i in range(12)]
+    responses: dict[tuple[str, str], Any] = {
+        response_key("/api/notebook/lsNotebooks", {}): [{"id": "box-id", "name": "CodeX"}],
+        response_key(
+            "/api/filetree/getIDsByHPath",
+            {"notebook": "box-id", "path": "/README"},
+        ): [{"id": doc_id} for doc_id in ids],
+    }
+    for index, doc_id in enumerate(ids[: L.MAX_CANDIDATE_LINKS]):
+        responses[response_key("/api/filetree/getHPathByID", {"id": doc_id})] = f"/Candidate/{index}/README"
+
+    with fake_siyuan(responses):
+        result = L.siyuan_make_doc_link("/README")
+
+    assert result["candidateCount"] == 12
+    assert result["returnedCandidateCount"] == L.MAX_CANDIDATE_LINKS
+    assert result["candidatesTruncated"] is True
+    assert len(result["candidates"]) == L.MAX_CANDIDATE_LINKS
 
 
 def main() -> None:

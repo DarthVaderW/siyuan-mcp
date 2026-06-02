@@ -6,9 +6,14 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from siyuan_research_mcp.core import call_siyuan, current_default_notebook, mcp
+from siyuan_research_mcp import core
 
-BLOCK_ID_RE = re.compile(r"^\d{14}-[0-9a-z]{7}$")
+mcp = core.mcp
+BLOCK_ID_RE = core.SIYUAN_ID_RE
+MAX_CANDIDATE_LINKS = 10
+normalize_doc_path = core.normalize_doc_path
+extract_doc_ids = core.extract_doc_ids
+resolve_notebook_id = core.resolve_notebook_id
 
 
 def validate_block_id(id: str) -> str:
@@ -20,7 +25,8 @@ def validate_block_id(id: str) -> str:
 
 
 def escape_link_label(label: str) -> str:
-    return label.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+    clean = label.replace("\r", " ").replace("\n", " ")
+    return clean.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
 def format_block_link(id: str, label: str) -> dict[str, str]:
@@ -47,16 +53,11 @@ def derive_label_from_hpath(hpath: str) -> str:
     return clean.rsplit("/", 1)[-1] or "SiYuan document"
 
 
-def normalize_doc_path(value: str) -> str:
-    clean = re.sub(r"/+", "/", value.strip().replace("\\", "/"))
-    if not clean:
-        raise ValueError("Document path cannot be empty.")
-    return clean if clean.startswith("/") else f"/{clean}"
-
-
 def format_doc_link(doc: Mapping[str, Any], label: str | None = None) -> dict[str, Any]:
     """Format a resolved document as a canonical SiYuan block link."""
-    doc_id = validate_block_id(str(doc.get("id") or ""))
+    if not doc.get("id"):
+        raise ValueError("Document is missing 'id' field.")
+    doc_id = validate_block_id(str(doc["id"]))
     hpath = str(doc.get("hpath") or doc.get("path") or "")
     clean_label = label.strip() if label and label.strip() else derive_label_from_hpath(hpath)
     link = format_block_link(doc_id, clean_label)
@@ -71,56 +72,8 @@ def format_doc_link(doc: Mapping[str, Any], label: str | None = None) -> dict[st
     }
 
 
-def extract_doc_ids(data: Any) -> list[str]:
-    """Extract all document ids returned by /api/filetree/getIDsByHPath."""
-    raw_ids: list[Any] = []
-    if isinstance(data, list):
-        raw_ids = data
-    elif isinstance(data, dict):
-        ids = data.get("ids")
-        raw_ids = ids if isinstance(ids, list) else [data.get("id")]
-
-    result: list[str] = []
-    for item in raw_ids:
-        value = item.get("id") if isinstance(item, dict) else item
-        if value:
-            result.append(str(value))
-    return result
-
-
-def extract_notebooks(data: Any) -> list[dict[str, Any]]:
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    if isinstance(data, dict):
-        for key in ("notebooks", "boxes"):
-            value = data.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-    return []
-
-
-def find_notebook(id_or_name: str | None) -> dict[str, Any] | None:
-    if not id_or_name:
-        return None
-
-    data = call_siyuan("/api/notebook/lsNotebooks", {})
-    for notebook in extract_notebooks(data):
-        if notebook.get("id") == id_or_name or notebook.get("name") == id_or_name:
-            return notebook
-    return None
-
-
-def resolve_notebook_id(id_or_name: str | None = None) -> str:
-    candidate = id_or_name or current_default_notebook()
-    if not candidate:
-        raise ValueError("Notebook is required. Provide notebook or set SIYUAN_DEFAULT_NOTEBOOK.")
-
-    notebook = find_notebook(candidate)
-    return str(notebook.get("id") if notebook else candidate)
-
-
 def get_doc_ids_by_path(notebook_id: str, path: str) -> list[str]:
-    data = call_siyuan(
+    data = core.call_siyuan(
         "/api/filetree/getIDsByHPath",
         {
             "notebook": notebook_id,
@@ -130,15 +83,15 @@ def get_doc_ids_by_path(notebook_id: str, path: str) -> list[str]:
     return extract_doc_ids(data)
 
 
-def get_hpath_by_id(id: str) -> str | None:
-    data = call_siyuan("/api/filetree/getHPathByID", {"id": id})
-    return str(data) if data else None
-
-
-def candidate_links(ids: Sequence[str], label: str | None = None) -> list[dict[str, Any]]:
+def candidate_links(
+    ids: Sequence[str],
+    label: str | None = None,
+    *,
+    limit: int = MAX_CANDIDATE_LINKS,
+) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    for doc_id in ids:
-        hpath = get_hpath_by_id(doc_id) or ""
+    for doc_id in ids[:limit]:
+        hpath = core.get_hpath_by_id(doc_id) or ""
         candidates.append(format_doc_link({"id": doc_id, "hpath": hpath}, label))
     return candidates
 
@@ -172,16 +125,21 @@ def siyuan_make_doc_link(
         }
 
     if len(ids) > 1:
+        fallback_label = label.strip() if label and label.strip() else derive_label_from_hpath(doc_path)
+        candidates = candidate_links(ids, label)
         return {
             "found": False,
             "ambiguous": True,
             "notebook": notebook_id,
             "path": doc_path,
-            "label": label.strip() if label and label.strip() else None,
-            "candidates": candidate_links(ids, label),
+            "label": fallback_label,
+            "candidateCount": len(ids),
+            "returnedCandidateCount": len(candidates),
+            "candidatesTruncated": len(ids) > len(candidates),
+            "candidates": candidates,
         }
 
-    hpath = get_hpath_by_id(ids[0]) or doc_path
+    hpath = core.get_hpath_by_id(ids[0]) or doc_path
     result = format_doc_link({"id": ids[0], "hpath": hpath}, label)
     result.update({"notebook": notebook_id, "path": doc_path})
     return result
