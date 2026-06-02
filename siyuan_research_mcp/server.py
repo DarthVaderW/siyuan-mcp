@@ -700,6 +700,7 @@ def dig(data: Any, *keys: str) -> Any:
 # shared mcp instance.
 from siyuan_research_mcp import attributeview as attributeview  # noqa: E402,F401
 from siyuan_research_mcp import kmind as kmind  # noqa: E402,F401
+from siyuan_research_mcp import links as links  # noqa: E402,F401
 
 
 def main() -> None:
