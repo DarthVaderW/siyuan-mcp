@@ -77,12 +77,14 @@ read-only in Codex and do not expose an editable token/config form.
 
 ## Upgrade
 
-Codex users refresh the local `uvx @stable` cache, then fully restart Codex and
-open a new thread:
+Codex users refresh the local `uvx @stable` cache, then fully restart Codex:
 
 ```bash
 uvx --refresh --from git+https://github.com/DarthVaderW/siyuan-mcp.git@stable siyuan-mcp --help >/dev/null
 ```
+
+Existing threads can usually see refreshed MCP tools after restart. If they do
+not, open a new thread.
 
 Claude Code users update the marketplace/plugin, then restart Claude Code:
 
