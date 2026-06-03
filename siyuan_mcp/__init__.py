@@ -1,3 +1,6 @@
 """SiYuan MCP package."""
 
-__version__ = "0.1.11"
+from siyuan_mcp._version import get_version
+
+
+__version__ = get_version()

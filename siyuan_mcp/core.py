@@ -20,7 +20,10 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-VERSION = "0.1.11"
+from siyuan_mcp._version import get_version
+
+
+VERSION = get_version()
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SIYUAN_ID_RE = re.compile(r"^\d{14}-[0-9a-z]{7}$")
 
