@@ -28,3 +28,12 @@ def test_runtime_versions_match_pyproject() -> None:
     expected = pyproject_version()
     assert __version__ == expected
     assert VERSION == expected
+
+
+def main() -> None:
+    test_runtime_versions_match_pyproject()
+    print("\n1 passed")
+
+
+if __name__ == "__main__":
+    main()
