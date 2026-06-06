@@ -6,11 +6,27 @@ Importing this module registers the ``siyuan_av_*`` tools on the shared
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import datetime
 from typing import Any, Literal
 
 from siyuan_mcp.core import call_siyuan, generate_node_id, mcp
+
+
+ATTRIBUTE_VIEW_KEY_TYPES = {
+    "text",
+    "number",
+    "date",
+    "select",
+    "mSelect",
+    "url",
+    "email",
+    "phone",
+    "mAsset",
+    "checkbox",
+    "relation",
+}
 
 
 def get_attribute_view(av_id: str) -> dict[str, Any]:
@@ -55,6 +71,67 @@ def get_attribute_view_item_ids_by_bound_ids(av_id: str, block_ids: list[str]) -
     if isinstance(data, dict):
         return {str(key): str(value) for key, value in data.items() if value}
     return {}
+
+
+def extract_inserted_block_ids(data: Any) -> list[str]:
+    if isinstance(data, list):
+        ids: list[str] = []
+        for item in data:
+            if not item:
+                continue
+            if isinstance(item, str):
+                ids.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            if item.get("id"):
+                ids.append(str(item["id"]))
+            operations = item.get("doOperations")
+            if isinstance(operations, list):
+                ids.extend(
+                    str(operation["id"])
+                    for operation in operations
+                    if isinstance(operation, dict) and operation.get("id")
+                )
+            if not ids:
+                undo_operations = item.get("undoOperations")
+                if isinstance(undo_operations, list):
+                    ids.extend(
+                        str(operation["id"])
+                        for operation in undo_operations
+                        if isinstance(operation, dict) and operation.get("id")
+                    )
+        return ids
+    if isinstance(data, dict):
+        blocks = data.get("blocks")
+        if isinstance(blocks, list):
+            return [str(item.get("id") if isinstance(item, dict) else item) for item in blocks if item]
+        ids = data.get("ids")
+        if isinstance(ids, list):
+            return [str(item) for item in ids if item]
+        value = data.get("id") or data.get("blockID")
+        return [str(value)] if value else []
+    return []
+
+
+def extract_attribute_view_id_from_kramdown(markdown: str) -> str:
+    match = re.search(r"""data-av-id=(["'])(?P<id>[^"']+)\1""", markdown)
+    return html.unescape(match.group("id")) if match else ""
+
+
+def read_attribute_view_id_from_block(block_id: str) -> str:
+    attrs = call_siyuan("/api/attr/getBlockAttrs", {"id": block_id}) or {}
+    if isinstance(attrs, dict):
+        attr_av_id = str(attrs.get("data-av-id") or attrs.get("av-id") or "")
+        if attr_av_id:
+            return attr_av_id
+
+    kramdown_data = call_siyuan("/api/block/getBlockKramdown", {"id": block_id}) or {}
+    if isinstance(kramdown_data, dict):
+        kramdown = str(kramdown_data.get("kramdown") or "")
+    else:
+        kramdown = str(kramdown_data)
+    return extract_attribute_view_id_from_kramdown(kramdown)
 
 
 def build_attribute_view_value(
@@ -180,6 +257,23 @@ def coerce_attribute_view_date(value: Any) -> dict[str, Any]:
     }
 
 
+def normalize_create_table_fields(fields: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for field in fields or []:
+        if not isinstance(field, dict):
+            raise ValueError("fields items must be objects.")
+        name = str(field.get("name") or field.get("keyName") or "").strip()
+        if not name:
+            raise ValueError("field name cannot be empty.")
+        key_type = str(field.get("type") or field.get("keyType") or "text")
+        if key_type not in ATTRIBUTE_VIEW_KEY_TYPES:
+            raise ValueError(f"Unsupported attribute view key type: {key_type}")
+        key_id = str(field.get("id") or field.get("keyId") or "")
+        key_icon = str(field.get("icon") or field.get("keyIcon") or "")
+        normalized.append({"name": name, "type": key_type, "id": key_id, "icon": key_icon})
+    return normalized
+
+
 @mcp.tool()
 def siyuan_av_search(keyword: str = "") -> dict[str, Any]:
     """Search SiYuan database/attribute views by keyword."""
@@ -229,6 +323,110 @@ def siyuan_av_render(
         "page": page,
         "pageSize": pageSize,
         "result": data,
+    }
+
+
+@mcp.tool()
+def siyuan_av_create_table(
+    parentId: str,
+    fields: list[dict[str, Any]] | None = None,
+    avId: str | None = None,
+    position: Literal["append", "prepend"] = "append",
+    removeDefaultSelect: bool = True,
+) -> dict[str, Any]:
+    """Create and initialize a table AttributeView block under a parent block.
+
+    This is a convenience wrapper around: insert a NodeAttributeView block,
+    render it with createIfNotExist=true, optionally remove SiYuan's default
+    "单选" field, then append caller-provided fields.
+    """
+    if not parentId.strip():
+        raise ValueError("parentId cannot be empty.")
+    generated_av_id = avId or generate_node_id()
+    normalized_fields = normalize_create_table_fields(fields)
+    dom = (
+        '<div data-type="NodeAttributeView" '
+        f'data-av-id="{html.escape(generated_av_id, quote=True)}" '
+        'data-av-type="table"></div>'
+    )
+    endpoint = "/api/block/prependBlock" if position == "prepend" else "/api/block/appendBlock"
+    raw_insert = call_siyuan(endpoint, {"parentID": parentId, "data": dom, "dataType": "dom"})
+    inserted = extract_inserted_block_ids(raw_insert)
+    if not inserted:
+        raise RuntimeError("Could not resolve inserted AttributeView block id.")
+    database_block_id = inserted[0]
+
+    rendered = siyuan_av_render(
+        generated_av_id,
+        blockId=database_block_id,
+        createIfNotExist=True,
+        page=1,
+        pageSize=50,
+    )
+    actual_av_id = read_attribute_view_id_from_block(database_block_id) or generated_av_id
+    warnings: list[str] = []
+    if actual_av_id != generated_av_id:
+        warnings.append("Inserted AttributeView block reported a different av id; using the block's av id.")
+        rendered = siyuan_av_render(
+            actual_av_id,
+            blockId=database_block_id,
+            createIfNotExist=True,
+            page=1,
+            pageSize=50,
+        )
+
+    result = rendered.get("result") if isinstance(rendered, dict) else {}
+    if not isinstance(result, dict):
+        result = {}
+    view = result.get("view")
+    if not isinstance(view, dict):
+        view = {}
+    view_id = str(result.get("viewID") or view.get("id") or "")
+    columns = view.get("columns") if isinstance(view, dict) else []
+    primary_key_id = ""
+    default_select_key_id = ""
+    previous_key_id = ""
+    for column in columns or []:
+        if not isinstance(column, dict):
+            continue
+        column_id = str(column.get("id") or "")
+        if column.get("type") == "block":
+            primary_key_id = column_id
+            previous_key_id = column_id
+        elif not default_select_key_id and column.get("type") == "select":
+            default_select_key_id = column_id
+
+    if not primary_key_id:
+        warnings.append("Could not identify the AttributeView primary block key; new fields were inserted at the beginning.")
+
+    removed_default_select = False
+    if removeDefaultSelect and default_select_key_id:
+        siyuan_av_remove_key(actual_av_id, default_select_key_id)
+        removed_default_select = True
+
+    added_fields: list[dict[str, Any]] = []
+    for field in normalized_fields:
+        add_result = siyuan_av_add_key(
+            actual_av_id,
+            field["name"],
+            keyType=field["type"],  # type: ignore[arg-type]
+            keyId=field["id"] or None,
+            keyIcon=field["icon"],
+            previousKeyId=previous_key_id,
+        )
+        added_fields.append(add_result)
+        previous_key_id = add_result["keyId"]
+
+    return {
+        "avId": actual_av_id,
+        "requestedAvId": generated_av_id,
+        "databaseBlockId": database_block_id,
+        "viewId": view_id or None,
+        "primaryKeyId": primary_key_id or None,
+        "removedDefaultSelect": removed_default_select,
+        "addedFields": added_fields,
+        "warnings": warnings,
+        "rawInsert": raw_insert,
     }
 
 

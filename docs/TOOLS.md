@@ -141,6 +141,15 @@ MCP 提供通用思源能力，上层调用方决定具体业务流程。
 
 渲染思源数据库/属性视图。支持传入 `blockId`，并可用 `createIfNotExist=true` 为一个新的 `NodeAttributeView` 块初始化数据库 JSON。
 
+### `siyuan_av_create_table`
+
+在父块下创建并初始化一个表格型 AttributeView。它会插入
+`NodeAttributeView` 块、调用 `siyuan_av_render(createIfNotExist=true)` 初始化、
+可选移除思源新表自带的默认 `select` 列，并按调用方传入的字段列表追加字段。
+
+这个工具只做通用建表，不写任何业务字段；字段设计仍由上层 skill 或调用方决定。
+为避免在旧思源版本中扩大 AV 名称写入风险，它不直接设置 AV 名称。
+
 ### `siyuan_av_add_key`
 
 给属性视图增加字段。当前已验证的常用字段类型包括 `text`、`number`、`url`、`select`、`mSelect`、`checkbox`。
