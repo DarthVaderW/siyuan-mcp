@@ -191,6 +191,50 @@ relation 单元格。验证 relation 是否真的显示目标文档，应使用 
 
 调整当前表格视图中的列顺序。通常和 `siyuan_av_sort_key` 配套使用：全局字段顺序和可见视图列顺序都整理成同一个模板。
 
+### `siyuan_av_set_view_name`
+
+设置某个数据库视图标签页的名称，例如把默认的“表格”改成“阅读队列”。
+
+### `siyuan_av_add_view`
+
+向数据库增加一个视图标签页。默认创建 table 视图，也可创建 `kanban` 或 `gallery`。
+
+### `siyuan_av_duplicate_view`
+
+复制已有视图标签页。适合先复制默认表格视图，再用 `siyuan_av_configure_table_view` 改成不同任务视图。
+
+### `siyuan_av_set_active_view`
+
+设置某个 AttributeView block 当前显示的视图。这个操作只改变该数据库块当前打开的 view，不改字段 schema。
+
+### `siyuan_av_configure_table_view`
+
+配置一个 table 视图的名称、当前激活状态、列顺序、列显隐、宽度、冻结和换行。
+
+常用结构：
+
+```json
+{
+  "avId": "数据库ID",
+  "blockId": "数据库块ID",
+  "viewId": "视图ID",
+  "name": "阅读队列",
+  "hideUnlisted": true,
+  "columns": [
+    {"keyName": "论文", "width": "420px", "pin": true},
+    "阅读状态",
+    "优先级",
+    {"keyName": "下一步动作", "width": "320px", "wrap": true}
+  ]
+}
+```
+
+规则：
+
+- `columns` 可传字段 ID、字段名，或带 `keyName` / `keyId` 的对象。
+- `hideUnlisted=true` 时，未列出的字段会在该视图隐藏；这正是区分“阅读队列”“开源跟踪”“Zotero/HTML 健康”等视图的主要方式。
+- 不要把所有字段塞进默认视图；默认视图应该用于扫描和决策。
+
 ### `siyuan_av_append_detached_rows`
 
 向属性视图追加非绑定行。行结构使用简单对象：

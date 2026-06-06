@@ -92,6 +92,45 @@ def attribute_view_name(attr_view: dict[str, Any]) -> str:
     return str(attr_view.get("name") or attr_view.get("Name") or "")
 
 
+def attribute_view_views(attr_view: dict[str, Any]) -> list[dict[str, Any]]:
+    return [view for view in attr_view.get("views") or [] if isinstance(view, dict)]
+
+
+def find_attribute_view_view(attr_view: dict[str, Any], view_id: str) -> dict[str, Any] | None:
+    for view in attribute_view_views(attr_view):
+        if str(view.get("id") or "") == view_id:
+            return view
+    return None
+
+
+def attribute_view_table_columns(view: dict[str, Any]) -> list[dict[str, Any]]:
+    table = view.get("table")
+    if not isinstance(table, dict):
+        return []
+    return [column for column in table.get("columns") or [] if isinstance(column, dict)]
+
+
+def attribute_view_view_summary(view: dict[str, Any]) -> dict[str, Any]:
+    columns = attribute_view_table_columns(view)
+    return {
+        "id": str(view.get("id") or ""),
+        "name": str(view.get("name") or ""),
+        "type": str(view.get("type") or ""),
+        "hideAttrViewName": bool(view.get("hideAttrViewName")),
+        "pageSize": view.get("pageSize"),
+        "columns": [
+            {
+                "id": str(column.get("id") or ""),
+                "hidden": bool(column.get("hidden")),
+                "pin": bool(column.get("pin")),
+                "wrap": bool(column.get("wrap")),
+                "width": str(column.get("width") or ""),
+            }
+            for column in columns
+        ],
+    }
+
+
 def find_attribute_view_key_id(attr_view: dict[str, Any], key_type: str) -> str | None:
     for key_id, key in attribute_view_key_map(attr_view).items():
         if key.get("type") == key_type:
@@ -203,6 +242,80 @@ def normalize_id_list(value: Any) -> list[str]:
         return []
     values = value if isinstance(value, list) else [value]
     return [str(item) for item in values if str(item or "")]
+
+
+def clean_single_line(value: str, field_name: str) -> str:
+    clean_value = value.strip().replace("\n", " ")
+    if not clean_value:
+        raise ValueError(f"{field_name} cannot be empty.")
+    return clean_value
+
+
+def require_attribute_view_view(attr_view: dict[str, Any], view_id: str) -> dict[str, Any]:
+    view = find_attribute_view_view(attr_view, view_id)
+    if not view:
+        raise ValueError(f"Attribute view view not found: {view_id}")
+    return view
+
+
+def resolve_attribute_view_key_id(attr_view: dict[str, Any], column: Any) -> str:
+    keys = attribute_view_key_map(attr_view)
+    if isinstance(column, str):
+        candidate = column.strip()
+        if not candidate:
+            raise ValueError("column name/id cannot be empty.")
+        if candidate in keys:
+            return candidate
+        matches = [key_id for key_id, key in keys.items() if str(key.get("name") or "") == candidate]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError(f"Attribute view column name is ambiguous: {candidate}")
+        raise ValueError(f"Attribute view column not found: {candidate}")
+    if not isinstance(column, dict):
+        raise ValueError("column must be a string or object.")
+    candidate = str(column.get("keyId") or column.get("id") or "").strip()
+    if candidate:
+        if candidate not in keys:
+            raise ValueError(f"Attribute view column id not found: {candidate}")
+        return candidate
+    name = str(column.get("keyName") or column.get("name") or "").strip()
+    if not name:
+        candidates = column.get("keyNameCandidates") or column.get("nameCandidates") or []
+        if isinstance(candidates, list):
+            for item in candidates:
+                try:
+                    return resolve_attribute_view_key_id(attr_view, str(item))
+                except ValueError:
+                    continue
+        raise ValueError("column object must include keyId/id, keyName/name, or keyNameCandidates/nameCandidates.")
+    return resolve_attribute_view_key_id(attr_view, name)
+
+
+def normalize_table_view_column_specs(
+    attr_view: dict[str, Any],
+    columns: list[Any],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for column in columns:
+        key_id = resolve_attribute_view_key_id(attr_view, column)
+        if key_id in seen:
+            continue
+        seen.add(key_id)
+        spec = column if isinstance(column, dict) else {}
+        normalized.append(
+            {
+                "keyId": key_id,
+                "width": str(spec.get("width") or ""),
+                "pin": spec.get("pin"),
+                "wrap": spec.get("wrap"),
+                "hidden": spec.get("hidden"),
+            }
+        )
+    if not normalized:
+        raise ValueError("columns cannot be empty.")
+    return normalized
 
 
 def rendered_relation_values(data: Any, key_id: str, item_id: str) -> list[dict[str, Any]]:
@@ -499,9 +612,7 @@ def siyuan_av_set_name(
     name: str,
 ) -> dict[str, Any]:
     """Set the human-visible name of a SiYuan database/attribute view."""
-    clean_name = name.strip().replace("\n", " ")
-    if not clean_name:
-        raise ValueError("name cannot be empty.")
+    clean_name = clean_single_line(name, "name")
     raw = run_transaction(
         [
             {
@@ -516,6 +627,325 @@ def siyuan_av_set_name(
         "avId": avId,
         "name": attribute_view_name(attr_view),
         "requestedName": clean_name,
+        "raw": raw,
+    }
+
+
+@mcp.tool()
+def siyuan_av_set_view_name(
+    avId: str,
+    viewId: str,
+    name: str,
+) -> dict[str, Any]:
+    """Set the name of one SiYuan database/attribute-view view tab."""
+    clean_name = clean_single_line(name, "name")
+    attr_view = get_attribute_view(avId)
+    require_attribute_view_view(attr_view, viewId)
+    raw = run_transaction(
+        [
+            {
+                "action": "setAttrViewViewName",
+                "avID": avId,
+                "id": viewId,
+                "data": clean_name,
+            }
+        ]
+    )
+    updated_view = require_attribute_view_view(get_attribute_view(avId), viewId)
+    return {
+        "avId": avId,
+        "viewId": viewId,
+        "name": str(updated_view.get("name") or ""),
+        "requestedName": clean_name,
+        "view": attribute_view_view_summary(updated_view),
+        "raw": raw,
+    }
+
+
+@mcp.tool()
+def siyuan_av_add_view(
+    avId: str,
+    blockId: str,
+    viewId: str | None = None,
+    name: str = "",
+    layout: Literal["table", "kanban", "gallery"] = "table",
+) -> dict[str, Any]:
+    """Add a view tab to a SiYuan database/attribute view."""
+    if not blockId.strip():
+        raise ValueError("blockId cannot be empty.")
+    generated_view_id = viewId or generate_node_id()
+    operation: dict[str, Any] = {
+        "action": "addAttrViewView",
+        "avID": avId,
+        "id": generated_view_id,
+        "blockID": blockId,
+    }
+    if layout != "table":
+        operation["layout"] = layout
+    raw = run_transaction([operation])
+    set_name_result = None
+    if name.strip():
+        set_name_result = siyuan_av_set_view_name(avId, generated_view_id, name)
+    attr_view = get_attribute_view(avId)
+    view = require_attribute_view_view(attr_view, generated_view_id)
+    return {
+        "avId": avId,
+        "blockId": blockId,
+        "viewId": generated_view_id,
+        "name": str(view.get("name") or ""),
+        "layout": layout,
+        "setName": set_name_result,
+        "view": attribute_view_view_summary(view),
+        "raw": raw,
+    }
+
+
+@mcp.tool()
+def siyuan_av_duplicate_view(
+    avId: str,
+    blockId: str,
+    sourceViewId: str,
+    viewId: str | None = None,
+    name: str = "",
+) -> dict[str, Any]:
+    """Duplicate one SiYuan database/attribute-view view tab."""
+    if not blockId.strip():
+        raise ValueError("blockId cannot be empty.")
+    attr_view = get_attribute_view(avId)
+    require_attribute_view_view(attr_view, sourceViewId)
+    generated_view_id = viewId or generate_node_id()
+    raw = run_transaction(
+        [
+            {
+                "action": "duplicateAttrViewView",
+                "avID": avId,
+                "previousID": sourceViewId,
+                "id": generated_view_id,
+                "blockID": blockId,
+            }
+        ]
+    )
+    set_name_result = None
+    if name.strip():
+        set_name_result = siyuan_av_set_view_name(avId, generated_view_id, name)
+    view = require_attribute_view_view(get_attribute_view(avId), generated_view_id)
+    return {
+        "avId": avId,
+        "blockId": blockId,
+        "sourceViewId": sourceViewId,
+        "viewId": generated_view_id,
+        "name": str(view.get("name") or ""),
+        "setName": set_name_result,
+        "view": attribute_view_view_summary(view),
+        "raw": raw,
+    }
+
+
+@mcp.tool()
+def siyuan_av_set_active_view(
+    avId: str,
+    blockId: str,
+    viewId: str,
+) -> dict[str, Any]:
+    """Set which view tab a database/attribute-view block displays."""
+    if not blockId.strip():
+        raise ValueError("blockId cannot be empty.")
+    attr_view = get_attribute_view(avId)
+    view = require_attribute_view_view(attr_view, viewId)
+    raw = run_transaction(
+        [
+            {
+                "action": "setAttrViewBlockView",
+                "blockID": blockId,
+                "id": viewId,
+                "avID": avId,
+            }
+        ]
+    )
+    return {
+        "avId": avId,
+        "blockId": blockId,
+        "viewId": viewId,
+        "view": attribute_view_view_summary(view),
+        "raw": raw,
+    }
+
+
+@mcp.tool()
+def siyuan_av_configure_table_view(
+    avId: str,
+    blockId: str,
+    viewId: str,
+    columns: list[Any],
+    name: str = "",
+    hideUnlisted: bool = True,
+    showIcon: bool | None = None,
+    wrapField: bool | None = None,
+    hideAttrViewName: bool | None = None,
+) -> dict[str, Any]:
+    """Configure a table view tab: name, active view, column order, visibility, and widths.
+
+    ``columns`` accepts either key ids / key names or objects:
+    ``{"keyName": "论文", "width": "360px", "pin": true, "wrap": true}``.
+    Unlisted columns are hidden by default, except the primary block key should
+    be listed explicitly as the first column in reader-facing views.
+    """
+    if not blockId.strip():
+        raise ValueError("blockId cannot be empty.")
+    attr_view = get_attribute_view(avId)
+    view = require_attribute_view_view(attr_view, viewId)
+    if str(view.get("type") or "") != "table":
+        raise ValueError(f"Attribute view view is not table type: {viewId}")
+    normalized_columns = normalize_table_view_column_specs(attr_view, columns)
+    requested_key_ids = [column["keyId"] for column in normalized_columns]
+    key_map = attribute_view_key_map(attr_view)
+    current_columns = attribute_view_table_columns(view)
+    current_key_ids = [str(column.get("id") or "") for column in current_columns if column.get("id")]
+
+    operations: list[dict[str, Any]] = [
+        {
+            "action": "setAttrViewBlockView",
+            "blockID": blockId,
+            "id": viewId,
+            "avID": avId,
+        }
+    ]
+    if name.strip():
+        operations.append(
+            {
+                "action": "setAttrViewViewName",
+                "avID": avId,
+                "id": viewId,
+                "data": clean_single_line(name, "name"),
+            }
+        )
+    if showIcon is not None:
+        operations.append(
+            {
+                "action": "setAttrViewShowIcon",
+                "avID": avId,
+                "blockID": blockId,
+                "data": bool(showIcon),
+                "viewID": viewId,
+            }
+        )
+    if wrapField is not None:
+        operations.append(
+            {
+                "action": "setAttrViewWrapField",
+                "avID": avId,
+                "blockID": blockId,
+                "data": bool(wrapField),
+                "viewID": viewId,
+            }
+        )
+    if hideAttrViewName is not None:
+        operations.append(
+            {
+                "action": "hideAttrViewName",
+                "avID": avId,
+                "blockID": blockId,
+                "data": bool(hideAttrViewName),
+                "viewID": viewId,
+            }
+        )
+
+    visible_set = set(requested_key_ids)
+    if hideUnlisted:
+        block_key_id = find_attribute_view_key_id(attr_view, "block")
+        for key_id in current_key_ids:
+            if key_id == block_key_id:
+                continue
+            should_hide = key_id not in visible_set
+            current = next((column for column in current_columns if str(column.get("id") or "") == key_id), {})
+            if bool(current.get("hidden")) != should_hide:
+                operations.append(
+                    {
+                        "action": "setAttrViewColHidden",
+                        "id": key_id,
+                        "avID": avId,
+                        "data": should_hide,
+                        "blockID": blockId,
+                        "viewID": viewId,
+                    }
+                )
+
+    previous_key_id = ""
+    for column in normalized_columns:
+        key_id = column["keyId"]
+        operations.append(
+            {
+                "action": "sortAttrViewCol",
+                "avID": avId,
+                "previousID": previous_key_id,
+                "id": key_id,
+                "blockID": blockId,
+                "viewID": viewId,
+            }
+        )
+        if hideUnlisted:
+            operations.append(
+                {
+                    "action": "setAttrViewColHidden",
+                    "id": key_id,
+                    "avID": avId,
+                    "data": False,
+                    "blockID": blockId,
+                    "viewID": viewId,
+                }
+            )
+        if column["width"]:
+            operations.append(
+                {
+                    "action": "setAttrViewColWidth",
+                    "id": key_id,
+                    "avID": avId,
+                    "data": column["width"],
+                    "blockID": blockId,
+                    "viewID": viewId,
+                }
+            )
+        if column["pin"] is not None:
+            operations.append(
+                {
+                    "action": "setAttrViewColPin",
+                    "id": key_id,
+                    "avID": avId,
+                    "data": bool(column["pin"]),
+                    "blockID": blockId,
+                    "viewID": viewId,
+                }
+            )
+        if column["wrap"] is not None:
+            operations.append(
+                {
+                    "action": "setAttrViewColWrap",
+                    "id": key_id,
+                    "avID": avId,
+                    "data": bool(column["wrap"]),
+                    "blockID": blockId,
+                    "viewID": viewId,
+                }
+            )
+        previous_key_id = key_id
+
+    raw = run_transaction(operations)
+    updated_attr_view = get_attribute_view(avId)
+    updated_view = require_attribute_view_view(updated_attr_view, viewId)
+    return {
+        "avId": avId,
+        "blockId": blockId,
+        "viewId": viewId,
+        "name": str(updated_view.get("name") or ""),
+        "configuredColumns": [
+            {
+                "keyId": key_id,
+                "keyName": str(key_map.get(key_id, {}).get("name") or ""),
+            }
+            for key_id in requested_key_ids
+        ],
+        "hiddenUnlisted": hideUnlisted,
+        "view": attribute_view_view_summary(updated_view),
         "raw": raw,
     }
 
