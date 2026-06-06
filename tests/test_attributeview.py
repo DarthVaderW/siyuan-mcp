@@ -154,6 +154,385 @@ class AttributeViewToolsTest(unittest.TestCase):
         self.assertEqual(render_payloads[0]["id"], "20260605120000-request")
         self.assertEqual(render_payloads[1]["id"], "20260605120000-actual1")
 
+    def test_set_name_uses_transaction_operation(self):
+        calls = []
+
+        def fake_call(endpoint, payload):
+            calls.append((endpoint, payload))
+            if endpoint == "/api/transactions":
+                return [{"doOperations": payload["transactions"][0]["doOperations"]}]
+            if endpoint == "/api/av/getAttributeView":
+                return {"av": {"id": "20260605120000-av00001", "name": "论文总表"}}
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            result = attributeview.siyuan_av_set_name("20260605120000-av00001", "论文总表")
+
+        self.assertEqual(result["name"], "论文总表")
+        self.assertEqual(calls[0][0], "/api/transactions")
+        operation = calls[0][1]["transactions"][0]["doOperations"][0]
+        self.assertEqual(operation["action"], "setAttrViewName")
+        self.assertEqual(operation["id"], "20260605120000-av00001")
+        self.assertEqual(operation["data"], "论文总表")
+
+    def test_configure_relation_uses_target_av_transaction(self):
+        calls = []
+
+        def fake_call(endpoint, payload):
+            calls.append((endpoint, payload))
+            if endpoint == "/api/av/getAttributeView":
+                if len([call for call in calls if call[0] == endpoint]) == 1:
+                    return {
+                        "av": {
+                            "id": "20260605120000-source",
+                            "keyValues": [
+                                {"key": {"id": "20260605120000-rela01", "name": "关键人物", "type": "relation"}}
+                            ],
+                        }
+                    }
+                return {
+                    "av": {
+                        "id": "20260605120000-source",
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-rela01",
+                                    "name": "关键人物",
+                                    "type": "relation",
+                                    "relation": {"avID": "20260605120000-target", "isTwoWay": False},
+                                }
+                            }
+                        ],
+                    }
+                }
+            if endpoint == "/api/transactions":
+                return None
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            result = attributeview.siyuan_av_configure_relation(
+                "20260605120000-source",
+                "20260605120000-rela01",
+                "20260605120000-target",
+            )
+
+        self.assertEqual(result["targetAvId"], "20260605120000-target")
+        operation = [payload for endpoint, payload in calls if endpoint == "/api/transactions"][0][
+            "transactions"
+        ][0]["doOperations"][0]
+        self.assertEqual(operation["action"], "updateAttrViewColRelation")
+        self.assertEqual(operation["avID"], "20260605120000-source")
+        self.assertEqual(operation["id"], "20260605120000-target")
+        self.assertEqual(operation["keyID"], "20260605120000-rela01")
+        self.assertEqual(operation["format"], "关键人物")
+
+    def test_set_relation_cell_resolves_target_doc_to_target_item(self):
+        calls = []
+
+        def fake_call(endpoint, payload):
+            calls.append((endpoint, payload))
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-source",
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-rela01",
+                                    "name": "关键人物",
+                                    "type": "relation",
+                                    "relation": {"avID": "20260605120000-people", "isTwoWay": False},
+                                }
+                            }
+                        ],
+                    }
+                }
+            if endpoint == "/api/av/getAttributeViewItemIDsByBoundIDs":
+                self.assertEqual(payload["avID"], "20260605120000-people")
+                self.assertEqual(payload["blockIDs"], ["20260605120000-person1"])
+                return {"20260605120000-person1": "20260605120000-person-row"}
+            if endpoint == "/api/av/setAttributeViewBlockAttr":
+                value = payload["value"]
+                self.assertEqual(value["relation"]["blockIDs"], ["20260605120000-person-row"])
+                return None
+            if endpoint == "/api/av/renderAttributeView":
+                return {
+                    "rows": [
+                        {
+                            "values": [
+                                {
+                                    "keyID": "20260605120000-rela01",
+                                    "blockID": "20260605120000-paper-row",
+                                    "relation": {
+                                        "blockIDs": ["20260605120000-person-row"],
+                                        "contents": [{"block": {"content": "Hanwen Wang"}}],
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            result = attributeview.siyuan_av_set_relation_cell(
+                "20260605120000-source",
+                "20260605120000-rela01",
+                "20260605120000-paper-row",
+                targetBlockIds=["20260605120000-person1"],
+            )
+
+        self.assertEqual(result["targetItemIds"], ["20260605120000-person-row"])
+        self.assertEqual(result["itemIdsByBlockId"], {"20260605120000-person1": "20260605120000-person-row"})
+        self.assertTrue(result["renderValidation"]["ok"])
+
+    def test_set_relation_cell_rejects_unbound_target_doc(self):
+        def fake_call(endpoint, payload):
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-source",
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-rela01",
+                                    "name": "关键人物",
+                                    "type": "relation",
+                                    "relation": {"avID": "20260605120000-people", "isTwoWay": False},
+                                }
+                            }
+                        ],
+                    }
+                }
+            if endpoint == "/api/av/getAttributeViewItemIDsByBoundIDs":
+                self.assertEqual(payload["blockIDs"], ["20260605120000-person1"])
+                return {}
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            with self.assertRaisesRegex(ValueError, "Could not resolve target"):
+                attributeview.siyuan_av_set_relation_cell(
+                    "20260605120000-source",
+                    "20260605120000-rela01",
+                    "20260605120000-paper-row",
+                    targetBlockIds=["20260605120000-person1"],
+                )
+
+    def test_set_relation_cell_render_warning_does_not_fail_by_default(self):
+        def fake_call(endpoint, _payload):
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-source",
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-rela01",
+                                    "name": "关键人物",
+                                    "type": "relation",
+                                    "relation": {"avID": "20260605120000-people", "isTwoWay": False},
+                                }
+                            }
+                        ],
+                    }
+                }
+            if endpoint == "/api/av/setAttributeViewBlockAttr":
+                return None
+            if endpoint == "/api/av/renderAttributeView":
+                return {"rows": []}
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            result = attributeview.siyuan_av_set_relation_cell(
+                "20260605120000-source",
+                "20260605120000-rela01",
+                "20260605120000-paper-row",
+                targetItemIds=["20260605120000-person-row"],
+            )
+            with self.assertRaisesRegex(ValueError, "rendered relation.contents"):
+                attributeview.siyuan_av_set_relation_cell(
+                    "20260605120000-source",
+                    "20260605120000-rela01",
+                    "20260605120000-paper-row",
+                    targetItemIds=["20260605120000-person-row"],
+                    requireRenderedContents=True,
+                )
+
+        self.assertFalse(result["renderValidation"]["ok"])
+        self.assertTrue(result["warnings"])
+
+    def test_plain_cell_tools_refuse_relation_fields(self):
+        def fake_call(endpoint, _payload):
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-source",
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-rela01",
+                                    "name": "关键人物",
+                                    "type": "relation",
+                                    "relation": {"avID": "20260605120000-people", "isTwoWay": False},
+                                }
+                            }
+                        ],
+                    }
+                }
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            with self.assertRaisesRegex(ValueError, "siyuan_av_set_relation_cell"):
+                attributeview.siyuan_av_set_cell(
+                    "20260605120000-source",
+                    "20260605120000-rela01",
+                    "20260605120000-paper-row",
+                    ["20260605120000-person-doc"],
+                )
+            with self.assertRaisesRegex(ValueError, "siyuan_av_set_relation_cell"):
+                attributeview.siyuan_av_batch_set_cells(
+                    "20260605120000-source",
+                    [
+                        {
+                            "keyId": "20260605120000-rela01",
+                            "itemId": "20260605120000-paper-row",
+                            "value": ["20260605120000-person-doc"],
+                        }
+                    ],
+                )
+
+    def test_select_cell_reuses_or_assigns_non_empty_colors(self):
+        calls = []
+
+        def fake_call(endpoint, payload):
+            calls.append((endpoint, payload))
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-av00001",
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-select1",
+                                    "name": "状态",
+                                    "type": "select",
+                                    "options": [{"name": "追踪中", "color": "4"}],
+                                }
+                            }
+                        ],
+                    }
+                }
+            if endpoint == "/api/av/setAttributeViewBlockAttr":
+                return None
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            known = attributeview.siyuan_av_set_cell(
+                "20260605120000-av00001",
+                "20260605120000-select1",
+                "20260605120000-row0001",
+                "追踪中",
+            )
+            new = attributeview.siyuan_av_set_cell(
+                "20260605120000-av00001",
+                "20260605120000-select1",
+                "20260605120000-row0001",
+                "待验收",
+            )
+
+        self.assertEqual(known["value"]["mSelect"], [{"content": "追踪中", "color": "4"}])
+        self.assertTrue(new["value"]["mSelect"][0]["color"])
+
+    def test_summary_returns_bound_row_mapping(self):
+        def fake_call(endpoint, _payload):
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-av00001",
+                        "name": "人物总表",
+                        "keyIDs": ["20260605120000-primary", "20260605120000-role01"],
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-primary",
+                                    "name": "主键",
+                                    "type": "block",
+                                },
+                                "values": [
+                                    {
+                                        "blockID": "20260605120000-person-row",
+                                        "block": {"id": "20260605120000-person-doc", "content": "Hanwen Wang"},
+                                    }
+                                ],
+                            },
+                            {
+                                "key": {
+                                    "id": "20260605120000-role01",
+                                    "name": "角色",
+                                    "type": "text",
+                                }
+                            },
+                        ],
+                        "views": [{"id": "20260605120000-view01", "name": "表格", "type": "table"}],
+                    }
+                }
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            result = attributeview.siyuan_av_summary("20260605120000-av00001")
+
+        self.assertEqual(result["name"], "人物总表")
+        self.assertEqual(result["rowCount"], 1)
+        self.assertEqual(
+            result["itemIdsByBoundId"],
+            {"20260605120000-person-doc": "20260605120000-person-row"},
+        )
+        self.assertEqual(
+            result["boundIdsByItemId"],
+            {"20260605120000-person-row": "20260605120000-person-doc"},
+        )
+
+    def test_validate_schema_reports_empty_name_relation_target_and_select_color(self):
+        def fake_call(endpoint, _payload):
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-av00001",
+                        "name": "",
+                        "keyIDs": [
+                            "20260605120000-rela01",
+                            "20260605120000-select1",
+                        ],
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-rela01",
+                                    "name": "关键人物",
+                                    "type": "relation",
+                                }
+                            },
+                            {
+                                "key": {
+                                    "id": "20260605120000-select1",
+                                    "name": "状态",
+                                    "type": "select",
+                                    "options": [{"name": "追踪中", "color": ""}],
+                                }
+                            },
+                        ],
+                    }
+                }
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            result = attributeview.siyuan_av_validate_schema("20260605120000-av00001")
+
+        codes = [issue["code"] for issue in result["issues"]]
+        self.assertFalse(result["ok"])
+        self.assertIn("missing-av-name", codes)
+        self.assertIn("relation-without-target-av", codes)
+        self.assertIn("select-option-empty-color", codes)
+
 
 if __name__ == "__main__":
     unittest.main()

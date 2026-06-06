@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from datetime import datetime
 from typing import Any, Literal
 
@@ -27,6 +28,8 @@ ATTRIBUTE_VIEW_KEY_TYPES = {
     "checkbox",
     "relation",
 }
+
+SELECT_COLOR_PALETTE = [str(index) for index in range(1, 15)]
 
 
 def get_attribute_view(av_id: str) -> dict[str, Any]:
@@ -56,11 +59,41 @@ def attribute_view_key_ids(attr_view: dict[str, Any]) -> list[str]:
     return list(attribute_view_key_map(attr_view).keys())
 
 
+def attribute_view_name(attr_view: dict[str, Any]) -> str:
+    return str(attr_view.get("name") or attr_view.get("Name") or "")
+
+
 def find_attribute_view_key_id(attr_view: dict[str, Any], key_type: str) -> str | None:
     for key_id, key in attribute_view_key_map(attr_view).items():
         if key.get("type") == key_type:
             return key_id
     return None
+
+
+def relation_target_av_id(key: dict[str, Any]) -> str:
+    relation = key.get("relation")
+    if not isinstance(relation, dict):
+        return ""
+    return str(relation.get("avID") or relation.get("avId") or relation.get("id") or "")
+
+
+def run_transaction(do_operations: list[dict[str, Any]]) -> Any:
+    if not do_operations:
+        raise ValueError("do_operations cannot be empty.")
+    return call_siyuan(
+        "/api/transactions",
+        {
+            "transactions": [
+                {
+                    "doOperations": do_operations,
+                    "undoOperations": [],
+                }
+            ],
+            "reqId": int(time.time() * 1000),
+            "app": "siyuan-mcp",
+            "session": "siyuan-mcp",
+        },
+    )
 
 
 def get_attribute_view_item_ids_by_bound_ids(av_id: str, block_ids: list[str]) -> dict[str, str]:
@@ -71,6 +104,107 @@ def get_attribute_view_item_ids_by_bound_ids(av_id: str, block_ids: list[str]) -
     if isinstance(data, dict):
         return {str(key): str(value) for key, value in data.items() if value}
     return {}
+
+
+def get_attribute_view_bound_ids_by_item_ids(attr_view: dict[str, Any]) -> dict[str, str]:
+    block_key_id = find_attribute_view_key_id(attr_view, "block")
+    if not block_key_id:
+        return {}
+    bound: dict[str, str] = {}
+    key_values = attr_view.get("keyValues") or []
+    for key_value in key_values:
+        if not isinstance(key_value, dict):
+            continue
+        key = key_value.get("key")
+        if not isinstance(key, dict) or str(key.get("id") or "") != block_key_id:
+            continue
+        for value in key_value.get("values") or []:
+            if not isinstance(value, dict):
+                continue
+            item_id = str(value.get("blockID") or "")
+            block = value.get("block")
+            if not item_id or not isinstance(block, dict):
+                continue
+            bound_id = str(block.get("id") or "")
+            if bound_id:
+                bound[item_id] = bound_id
+    return bound
+
+
+def select_option_colors(key: dict[str, Any]) -> dict[str, str]:
+    colors: dict[str, str] = {}
+    for option in key.get("options") or []:
+        if not isinstance(option, dict):
+            continue
+        name = str(option.get("name") or option.get("content") or "")
+        color = str(option.get("color") or "")
+        if name and color:
+            colors[name] = color
+    return colors
+
+
+def stable_select_color(content: str, index: int = 0) -> str:
+    if not content:
+        return SELECT_COLOR_PALETTE[index % len(SELECT_COLOR_PALETTE)]
+    total = sum(ord(char) for char in content)
+    return SELECT_COLOR_PALETTE[(total + index) % len(SELECT_COLOR_PALETTE)]
+
+
+def normalize_select_values(key: dict[str, Any], value: Any) -> list[dict[str, str]]:
+    values = value if isinstance(value, list) else ([] if value in (None, "") else [value])
+    existing_colors = select_option_colors(key)
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(values):
+        if isinstance(item, dict):
+            content = str(item.get("content") or item.get("name") or "")
+            color = str(item.get("color") or "")
+        else:
+            content = str(item)
+            color = ""
+        if not content:
+            continue
+        if not color:
+            color = existing_colors.get(content) or stable_select_color(content, index)
+        normalized.append({"content": content, "color": color})
+    return normalized
+
+
+def normalize_id_list(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    values = value if isinstance(value, list) else [value]
+    return [str(item) for item in values if str(item or "")]
+
+
+def rendered_relation_values(data: Any, key_id: str, item_id: str) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if isinstance(data, dict):
+        relation = data.get("relation")
+        if (
+            isinstance(relation, dict)
+            and str(data.get("keyID") or data.get("keyId") or "") == key_id
+            and str(data.get("blockID") or data.get("blockId") or data.get("itemID") or data.get("itemId") or "")
+            == item_id
+        ):
+            found.append(data)
+        for child in data.values():
+            found.extend(rendered_relation_values(child, key_id, item_id))
+    elif isinstance(data, list):
+        for child in data:
+            found.extend(rendered_relation_values(child, key_id, item_id))
+    return found
+
+
+def relation_contents_count(values: list[dict[str, Any]]) -> int:
+    count = 0
+    for value in values:
+        relation = value.get("relation")
+        if not isinstance(relation, dict):
+            continue
+        contents = relation.get("contents")
+        if isinstance(contents, list):
+            count += len(contents)
+    return count
 
 
 def extract_inserted_block_ids(data: Any) -> list[str]:
@@ -139,6 +273,7 @@ def build_attribute_view_value(
     key_type: str,
     value: Any,
     item_id: str | None = None,
+    key: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if isinstance(value, dict) and any(
         field in value
@@ -191,15 +326,7 @@ def build_attribute_view_value(
     elif key_type == "date":
         typed_value["date"] = coerce_attribute_view_date(value)
     elif key_type in {"select", "mSelect"}:
-        values = value if isinstance(value, list) else ([] if value in (None, "") else [value])
-        typed_value["mSelect"] = [
-            {
-                "content": str(item.get("content") if isinstance(item, dict) else item),
-                "color": str(item.get("color", "")) if isinstance(item, dict) else "",
-            }
-            for item in values
-            if str(item.get("content") if isinstance(item, dict) else item)
-        ]
+        typed_value["mSelect"] = normalize_select_values(key or {}, value)
     elif key_type == "url":
         typed_value["url"] = {"content": "" if value is None else str(value)}
     elif key_type == "email":
@@ -257,8 +384,8 @@ def coerce_attribute_view_date(value: Any) -> dict[str, Any]:
     }
 
 
-def normalize_create_table_fields(fields: list[dict[str, Any]] | None) -> list[dict[str, str]]:
-    normalized: list[dict[str, str]] = []
+def normalize_create_table_fields(fields: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
     for field in fields or []:
         if not isinstance(field, dict):
             raise ValueError("fields items must be objects.")
@@ -270,7 +397,18 @@ def normalize_create_table_fields(fields: list[dict[str, Any]] | None) -> list[d
             raise ValueError(f"Unsupported attribute view key type: {key_type}")
         key_id = str(field.get("id") or field.get("keyId") or "")
         key_icon = str(field.get("icon") or field.get("keyIcon") or "")
-        normalized.append({"name": name, "type": key_type, "id": key_id, "icon": key_icon})
+        normalized.append(
+            {
+                "name": name,
+                "type": key_type,
+                "id": key_id,
+                "icon": key_icon,
+                "relationTargetAvId": str(field.get("relationTargetAvId") or field.get("targetAvId") or ""),
+                "relationBackKeyId": str(field.get("relationBackKeyId") or field.get("backKeyId") or ""),
+                "relationBackKeyName": str(field.get("relationBackKeyName") or field.get("backKeyName") or ""),
+                "relationTwoWay": bool(field.get("relationTwoWay") or field.get("isTwoWay") or False),
+            }
+        )
     return normalized
 
 
@@ -327,8 +465,36 @@ def siyuan_av_render(
 
 
 @mcp.tool()
+def siyuan_av_set_name(
+    avId: str,
+    name: str,
+) -> dict[str, Any]:
+    """Set the human-visible name of a SiYuan database/attribute view."""
+    clean_name = name.strip().replace("\n", " ")
+    if not clean_name:
+        raise ValueError("name cannot be empty.")
+    raw = run_transaction(
+        [
+            {
+                "action": "setAttrViewName",
+                "id": avId,
+                "data": clean_name,
+            }
+        ]
+    )
+    attr_view = get_attribute_view(avId)
+    return {
+        "avId": avId,
+        "name": attribute_view_name(attr_view),
+        "requestedName": clean_name,
+        "raw": raw,
+    }
+
+
+@mcp.tool()
 def siyuan_av_create_table(
     parentId: str,
+    name: str = "",
     fields: list[dict[str, Any]] | None = None,
     avId: str | None = None,
     position: Literal["append", "prepend"] = "append",
@@ -404,6 +570,10 @@ def siyuan_av_create_table(
         siyuan_av_remove_key(actual_av_id, default_select_key_id)
         removed_default_select = True
 
+    set_name_result = None
+    if name.strip():
+        set_name_result = siyuan_av_set_name(actual_av_id, name)
+
     added_fields: list[dict[str, Any]] = []
     for field in normalized_fields:
         add_result = siyuan_av_add_key(
@@ -413,6 +583,10 @@ def siyuan_av_create_table(
             keyId=field["id"] or None,
             keyIcon=field["icon"],
             previousKeyId=previous_key_id,
+            relationTargetAvId=field["relationTargetAvId"] or None,
+            relationTwoWay=bool(field["relationTwoWay"]),
+            relationBackKeyId=field["relationBackKeyId"] or None,
+            relationBackKeyName=field["relationBackKeyName"],
         )
         added_fields.append(add_result)
         previous_key_id = add_result["keyId"]
@@ -420,10 +594,13 @@ def siyuan_av_create_table(
     return {
         "avId": actual_av_id,
         "requestedAvId": generated_av_id,
+        "name": set_name_result["name"] if isinstance(set_name_result, dict) else None,
+        "requestedName": name.strip() or None,
         "databaseBlockId": database_block_id,
         "viewId": view_id or None,
         "primaryKeyId": primary_key_id or None,
         "removedDefaultSelect": removed_default_select,
+        "setName": set_name_result,
         "addedFields": added_fields,
         "warnings": warnings,
         "rawInsert": raw_insert,
@@ -450,6 +627,10 @@ def siyuan_av_add_key(
     keyId: str | None = None,
     keyIcon: str = "",
     previousKeyId: str | None = None,
+    relationTargetAvId: str | None = None,
+    relationTwoWay: bool = False,
+    relationBackKeyId: str | None = None,
+    relationBackKeyName: str = "",
 ) -> dict[str, Any]:
     """Add a field/key to a SiYuan attribute view.
 
@@ -473,12 +654,77 @@ def siyuan_av_add_key(
             "previousKeyID": previousKeyId,
         },
     )
+    relation = None
+    if keyType == "relation" and relationTargetAvId:
+        relation = siyuan_av_configure_relation(
+            avId,
+            generated_key_id,
+            relationTargetAvId,
+            isTwoWay=relationTwoWay,
+            backRelationKeyId=relationBackKeyId,
+            backRelationKeyName=relationBackKeyName,
+            keyName=keyName.strip(),
+        )
     return {
         "avId": avId,
         "keyId": generated_key_id,
         "keyName": keyName.strip(),
         "keyType": keyType,
+        "relation": relation,
         "raw": result,
+    }
+
+
+@mcp.tool()
+def siyuan_av_configure_relation(
+    avId: str,
+    keyId: str,
+    targetAvId: str,
+    isTwoWay: bool = False,
+    backRelationKeyId: str | None = None,
+    backRelationKeyName: str = "",
+    keyName: str = "",
+) -> dict[str, Any]:
+    """Configure a relation field so it points at another AttributeView.
+
+    This only configures the field schema. Cell values still need target row
+    item ids; use ``siyuan_av_set_relation_cell`` for that instead of writing
+    raw document block ids into a relation cell.
+    """
+    if not targetAvId.strip():
+        raise ValueError("targetAvId cannot be empty.")
+    attr_view = get_attribute_view(avId)
+    key = attribute_view_key_map(attr_view).get(keyId)
+    if not key:
+        raise ValueError(f"Attribute view key not found: {keyId}")
+    if key.get("type") != "relation":
+        raise ValueError(f"Attribute view key is not relation type: {keyId}")
+    clean_key_name = keyName.strip() or str(key.get("name") or "").strip()
+    if not clean_key_name:
+        raise ValueError("keyName cannot be empty for relation configuration.")
+    clean_back_key_id = backRelationKeyId or (generate_node_id() if isTwoWay else "")
+    raw = run_transaction(
+        [
+            {
+                "action": "updateAttrViewColRelation",
+                "avID": avId,
+                "id": targetAvId.strip(),
+                "keyID": keyId,
+                "isTwoWay": isTwoWay,
+                "backRelationKeyID": clean_back_key_id,
+                "name": backRelationKeyName.strip(),
+                "format": clean_key_name,
+            }
+        ]
+    )
+    updated_key = attribute_view_key_map(get_attribute_view(avId)).get(keyId, {})
+    return {
+        "avId": avId,
+        "keyId": keyId,
+        "targetAvId": relation_target_av_id(updated_key),
+        "isTwoWay": isTwoWay,
+        "backRelationKeyId": clean_back_key_id or None,
+        "raw": raw,
     }
 
 
@@ -664,6 +910,110 @@ def siyuan_av_ensure_bound_rows(
 
 
 @mcp.tool()
+def siyuan_av_set_relation_cell(
+    avId: str,
+    keyId: str,
+    itemId: str,
+    targetBlockIds: list[str] | None = None,
+    targetItemIds: list[str] | None = None,
+    validateRender: bool = True,
+    requireRenderedContents: bool = False,
+    blockId: str | None = None,
+    viewId: str | None = None,
+) -> dict[str, Any]:
+    """Set a relation cell using target row item ids, resolving docs when needed.
+
+    Native SiYuan relation cells store target AttributeView row item ids. They
+    do not store target document block ids. Pass ``targetBlockIds`` for normal
+    use; the tool resolves those document ids through the relation target AV.
+    Pass ``targetItemIds`` only when the target row ids are already known.
+    """
+    attr_view = get_attribute_view(avId)
+    key = attribute_view_key_map(attr_view).get(keyId)
+    if not key:
+        raise ValueError(f"Attribute view key not found: {keyId}")
+    if key.get("type") != "relation":
+        raise ValueError(f"Attribute view key is not relation type: {keyId}")
+    target_av_id = relation_target_av_id(key)
+    if not target_av_id:
+        raise ValueError(
+            "Relation key has no target AttributeView. Run siyuan_av_configure_relation first."
+        )
+
+    requested_target_item_ids = normalize_id_list(targetItemIds)
+    requested_target_block_ids = normalize_id_list(targetBlockIds)
+    target_item_ids = list(requested_target_item_ids)
+    item_ids_by_block_id: dict[str, str] = {}
+    missing_target_block_ids: list[str] = []
+    if requested_target_block_ids:
+        item_ids_by_block_id = get_attribute_view_item_ids_by_bound_ids(target_av_id, requested_target_block_ids)
+        missing_target_block_ids = [
+            block_id for block_id in requested_target_block_ids if not item_ids_by_block_id.get(block_id)
+        ]
+        if missing_target_block_ids:
+            raise ValueError(
+                "Could not resolve target AttributeView row item ids for block ids: "
+                + ", ".join(missing_target_block_ids)
+            )
+        target_item_ids.extend(item_ids_by_block_id[block_id] for block_id in requested_target_block_ids)
+
+    target_item_ids = list(dict.fromkeys(target_item_ids))
+    warnings: list[str] = []
+    typed_value = build_attribute_view_value(
+        key_id=keyId,
+        key_type="relation",
+        value={"blockIDs": target_item_ids},
+        item_id=itemId,
+        key=key,
+    )
+    raw = call_siyuan(
+        "/api/av/setAttributeViewBlockAttr",
+        {"avID": avId, "keyID": keyId, "itemID": itemId, "value": typed_value},
+    )
+
+    render_validation: dict[str, Any] | None = None
+    if validateRender:
+        rendered = siyuan_av_render(
+            avId,
+            blockId=blockId,
+            viewId=viewId,
+            page=1,
+            pageSize=200,
+        )
+        relation_values = rendered_relation_values(rendered.get("result"), keyId, itemId)
+        contents_count = relation_contents_count(relation_values)
+        render_validation = {
+            "checked": True,
+            "relationValueCount": len(relation_values),
+            "relationContentsCount": contents_count,
+            "ok": not target_item_ids or contents_count > 0,
+        }
+        if target_item_ids and contents_count < 1:
+            message = (
+                "Relation cell was written but rendered relation.contents was not found on the rendered page. "
+                "Pass blockId/viewId for the concrete table view, or requireRenderedContents=true in small "
+                "acceptance tests when a missing rendered relation should fail hard."
+            )
+            if requireRenderedContents:
+                raise ValueError(message)
+            warnings.append(message)
+
+    return {
+        "avId": avId,
+        "keyId": keyId,
+        "itemId": itemId,
+        "targetAvId": target_av_id,
+        "targetBlockIds": requested_target_block_ids,
+        "targetItemIds": target_item_ids,
+        "itemIdsByBlockId": item_ids_by_block_id,
+        "value": typed_value,
+        "renderValidation": render_validation,
+        "warnings": warnings,
+        "raw": raw,
+    }
+
+
+@mcp.tool()
 def siyuan_av_set_cell(
     avId: str,
     keyId: str,
@@ -676,11 +1026,15 @@ def siyuan_av_set_cell(
     key = keys.get(keyId)
     if not key:
         raise ValueError(f"Attribute view key not found: {keyId}")
+    key_type = str(key.get("type") or "text")
+    if key_type == "relation":
+        raise ValueError("Use siyuan_av_set_relation_cell for relation fields.")
     typed_value = build_attribute_view_value(
         key_id=keyId,
-        key_type=str(key.get("type") or "text"),
+        key_type=key_type,
         value=value,
         item_id=itemId,
+        key=key,
     )
     data = call_siyuan(
         "/api/av/setAttributeViewBlockAttr",
@@ -706,17 +1060,131 @@ def siyuan_av_batch_set_cells(
         key = keys.get(key_id)
         if not key:
             raise ValueError(f"Attribute view key not found: {key_id}")
+        key_type = str(key.get("type") or "text")
+        if key_type == "relation":
+            raise ValueError("Use siyuan_av_set_relation_cell for relation fields.")
         values.append(
             {
                 "keyID": key_id,
                 "itemID": item_id,
                 "value": build_attribute_view_value(
                     key_id=key_id,
-                    key_type=str(key.get("type") or "text"),
+                    key_type=key_type,
                     value=cell.get("value"),
                     item_id=item_id,
+                    key=key,
                 ),
             }
         )
     data = call_siyuan("/api/av/batchSetAttributeViewBlockAttrs", {"avID": avId, "values": values})
     return {"avId": avId, "cells": len(cells), "raw": data}
+
+
+@mcp.tool()
+def siyuan_av_summary(
+    avId: str,
+    includeRows: bool = True,
+) -> dict[str, Any]:
+    """Return a compact, agent-friendly summary of an AttributeView.
+
+    Use this before updating schemas or relation cells. It avoids dumping the
+    full AttributeView JSON while preserving the IDs agents actually need.
+    """
+    attr_view = get_attribute_view(avId)
+    key_ids = attribute_view_key_ids(attr_view)
+    keys = attribute_view_key_map(attr_view)
+    key_summaries: list[dict[str, Any]] = []
+    for key_id in key_ids:
+        key = keys.get(key_id, {})
+        options = []
+        for option in key.get("options") or []:
+            if not isinstance(option, dict):
+                continue
+            options.append(
+                {
+                    "name": str(option.get("name") or option.get("content") or ""),
+                    "color": str(option.get("color") or ""),
+                }
+            )
+        key_summaries.append(
+            {
+                "id": key_id,
+                "name": str(key.get("name") or ""),
+                "type": str(key.get("type") or ""),
+                "relationTargetAvId": relation_target_av_id(key),
+                "options": options or None,
+            }
+        )
+
+    views = []
+    for view in attr_view.get("views") or []:
+        if not isinstance(view, dict):
+            continue
+        views.append(
+            {
+                "id": str(view.get("id") or ""),
+                "name": str(view.get("name") or ""),
+                "type": str(view.get("type") or ""),
+            }
+        )
+
+    item_ids_by_bound_id: dict[str, str] = {}
+    bound_ids_by_item_id: dict[str, str] = {}
+    if includeRows:
+        bound_ids_by_item_id = get_attribute_view_bound_ids_by_item_ids(attr_view)
+        item_ids_by_bound_id = {block_id: item_id for item_id, block_id in bound_ids_by_item_id.items()}
+
+    return {
+        "avId": avId,
+        "name": attribute_view_name(attr_view),
+        "keys": key_summaries,
+        "views": views,
+        "rowCount": len(bound_ids_by_item_id) if includeRows else None,
+        "itemIdsByBoundId": item_ids_by_bound_id if includeRows else None,
+        "boundIdsByItemId": bound_ids_by_item_id if includeRows else None,
+    }
+
+
+@mcp.tool()
+def siyuan_av_validate_schema(
+    avId: str,
+    requireName: bool = True,
+    requireRelationTargets: bool = True,
+    requireSelectColors: bool = True,
+) -> dict[str, Any]:
+    """Check common AttributeView schema problems that make the SiYuan UI poor."""
+    summary = siyuan_av_summary(avId, includeRows=False)
+    issues: list[dict[str, str]] = []
+    if requireName and not str(summary.get("name") or "").strip():
+        issues.append(
+            {
+                "severity": "error",
+                "code": "missing-av-name",
+                "message": "AttributeView internal name is empty; SiYuan will show 未命名数据库.",
+            }
+        )
+    for key in summary.get("keys") or []:
+        if not isinstance(key, dict):
+            continue
+        key_type = str(key.get("type") or "")
+        key_id = str(key.get("id") or "")
+        key_name = str(key.get("name") or "")
+        if requireRelationTargets and key_type == "relation" and not str(key.get("relationTargetAvId") or ""):
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "relation-without-target-av",
+                    "message": f"Relation key {key_name or key_id} has no target AttributeView.",
+                }
+            )
+        if requireSelectColors and key_type in {"select", "mSelect"}:
+            for option in key.get("options") or []:
+                if isinstance(option, dict) and str(option.get("name") or "") and not str(option.get("color") or ""):
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "code": "select-option-empty-color",
+                            "message": f"Select option {option.get('name')} on key {key_name or key_id} has empty color.",
+                        }
+                    )
+    return {"avId": avId, "ok": not any(issue["severity"] == "error" for issue in issues), "issues": issues}

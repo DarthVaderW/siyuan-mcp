@@ -136,6 +136,9 @@ MCP 提供通用思源能力，上层调用方决定具体业务流程。
 ### `siyuan_av_get`
 
 读取属性视图的底层 JSON。适合检查字段 ID、字段类型、视图 ID 和已有行。
+注意：`siyuan_av_get` 只能说明底层 JSON 写入了什么，不能证明思源 UI 已经能渲染
+relation 单元格。验证 relation 是否真的显示目标文档，应使用 `siyuan_av_render`
+并检查 `relation.contents`。
 
 ### `siyuan_av_render`
 
@@ -147,18 +150,38 @@ MCP 提供通用思源能力，上层调用方决定具体业务流程。
 `NodeAttributeView` 块、调用 `siyuan_av_render(createIfNotExist=true)` 初始化、
 可选移除思源新表自带的默认 `select` 列，并按调用方传入的字段列表追加字段。
 
+传入 `name` 时会设置 AttributeView 的内部数据库名，避免 UI 显示“未命名数据库”。
 这个工具只做通用建表，不写任何业务字段；字段设计仍由上层 skill 或调用方决定。
-为避免在旧思源版本中扩大 AV 名称写入风险，它不直接设置 AV 名称。
+
+字段为 `relation` 时可以传 `relationTargetAvId` 配置目标数据库。relation 单元格的
+值仍应通过 `siyuan_av_set_relation_cell` 写入。
+
+### `siyuan_av_set_name`
+
+设置 AttributeView 的内部数据库名。已有数据库显示“未命名数据库”时，用这个工具修复。
 
 ### `siyuan_av_add_key`
 
-给属性视图增加字段。当前已验证的常用字段类型包括 `text`、`number`、`url`、`select`、`mSelect`、`checkbox`。
+给属性视图增加字段。当前已验证的常用字段类型包括 `text`、`number`、`url`、`select`、`mSelect`、`checkbox`、`relation`。
 
 默认行为是把新字段追加到当前最后一个字段之后；如果确实要插到最前面，显式传 `previousKeyId=""`。
+
+字段为 `relation` 时可传 `relationTargetAvId`，工具会继续配置 relation 目标 AV。
+
+### `siyuan_av_configure_relation`
+
+把一个 `relation` 字段配置为指向目标 AttributeView。它只改字段 schema，不写单元格。
+
+思源原生 relation 的关键约束：
+
+- relation 列必须先有目标 AttributeView。
+- relation 单元格保存的是目标 AttributeView 的 row item id，不是目标文档 block id。
+- 如果把文档 block id 直接塞进 relation 单元格，底层 JSON 可能看似有值，但 UI 会显示空。
 
 ### `siyuan_av_remove_key`
 
 删除数据库字段。创建新表时可用它移除思源默认生成但不需要的“单选”列。
+删除 relation 字段时可按需传 `removeRelationDest=true`，让思源同步处理 relation 目标信息。
 
 ### `siyuan_av_sort_key`
 
@@ -206,11 +229,34 @@ MCP 提供通用思源能力，上层调用方决定具体业务流程。
 
 ### `siyuan_av_set_cell`
 
-更新一个单元格。适合在已知 `avId`、`keyId`、`itemId` 后修改字段。
+更新一个普通单元格。适合在已知 `avId`、`keyId`、`itemId` 后修改字段。
+`select`/`mSelect` 字符串值会自动复用已有选项颜色；新选项会分配非空稳定颜色。
+relation 字段会被拒绝；必须使用 `siyuan_av_set_relation_cell`。
+
+### `siyuan_av_set_relation_cell`
+
+安全更新 relation 单元格。正常用法是传 `targetBlockIds`，工具会通过 relation 目标
+AttributeView 把目标文档 block id 解析为目标 row item id，再写入单元格。
+
+可选传 `targetItemIds` 表示你已经知道目标 row item id。写入后默认调用
+`siyuan_av_render` 检查 `relation.contents`。如果当前渲染页没有包含该行，工具默认返回
+warning 而不是在成功写入后抛错；小型验收测试可传 `requireRenderedContents=true`，把
+空 `relation.contents` 当成硬失败。
 
 ### `siyuan_av_batch_set_cells`
 
 批量更新多个单元格。适合一次写入多个字段。
+
+### `siyuan_av_summary`
+
+返回精简的 AttributeView 摘要：内部名称、字段 ID/类型、relation 目标、select 选项颜色、
+视图列表，以及绑定文档 block id 和 row item id 的映射。需要定位“到底该用哪个 ID”时优先用它，
+不要直接把完整 `siyuan_av_get` 大 JSON 塞进上下文。
+
+### `siyuan_av_validate_schema`
+
+检查常见 schema 问题：数据库内部名称为空、relation 字段未配置目标 AV、select/mSelect
+选项颜色为空。适合 skill 在建表后做自检。
 
 ## KMind
 
