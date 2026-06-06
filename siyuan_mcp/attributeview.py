@@ -52,11 +52,40 @@ def attribute_view_key_map(attr_view: dict[str, Any]) -> dict[str, dict[str, Any
     return key_map
 
 
+def _append_unique_key_id(key_ids: list[str], key_id: Any) -> None:
+    normalized = str(key_id or "")
+    if normalized and normalized not in key_ids:
+        key_ids.append(normalized)
+
+
+def attribute_view_column_key_ids(attr_view: dict[str, Any]) -> list[str]:
+    key_ids: list[str] = []
+    for view in attr_view.get("views") or []:
+        if not isinstance(view, dict):
+            continue
+        columns = view.get("columns")
+        if isinstance(columns, list):
+            for column in columns:
+                if isinstance(column, dict):
+                    _append_unique_key_id(key_ids, column.get("id"))
+        table = view.get("table")
+        if not isinstance(table, dict):
+            continue
+        for column in table.get("columns") or []:
+            if isinstance(column, dict):
+                _append_unique_key_id(key_ids, column.get("id"))
+    return key_ids
+
+
 def attribute_view_key_ids(attr_view: dict[str, Any]) -> list[str]:
+    ordered_key_ids = attribute_view_column_key_ids(attr_view)
     key_ids = attr_view.get("keyIDs")
     if isinstance(key_ids, list) and key_ids:
-        return [str(key_id) for key_id in key_ids if key_id]
-    return list(attribute_view_key_map(attr_view).keys())
+        for key_id in key_ids:
+            _append_unique_key_id(ordered_key_ids, key_id)
+    for key_id in attribute_view_key_map(attr_view).keys():
+        _append_unique_key_id(ordered_key_ids, key_id)
+    return ordered_key_ids
 
 
 def attribute_view_name(attr_view: dict[str, Any]) -> str:

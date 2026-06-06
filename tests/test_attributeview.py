@@ -492,6 +492,77 @@ class AttributeViewToolsTest(unittest.TestCase):
             {"20260605120000-person-row": "20260605120000-person-doc"},
         )
 
+    def test_summary_includes_relation_keys_omitted_from_keyids(self):
+        def fake_call(endpoint, _payload):
+            if endpoint == "/api/av/getAttributeView":
+                return {
+                    "av": {
+                        "id": "20260605120000-av00001",
+                        "name": "论文总表",
+                        "keyIDs": [
+                            "20260605120000-primary",
+                            "20260605120000-status",
+                        ],
+                        "keyValues": [
+                            {
+                                "key": {
+                                    "id": "20260605120000-primary",
+                                    "name": "主键",
+                                    "type": "block",
+                                }
+                            },
+                            {
+                                "key": {
+                                    "id": "20260605120000-status",
+                                    "name": "阅读状态",
+                                    "type": "select",
+                                    "options": [{"name": "待读", "color": "6"}],
+                                }
+                            },
+                            {
+                                "key": {
+                                    "id": "20260605120000-rela01",
+                                    "name": "关键人物",
+                                    "type": "relation",
+                                    "relation": {"avID": "20260605120000-people"},
+                                }
+                            },
+                        ],
+                        "views": [
+                            {
+                                "id": "20260605120000-view01",
+                                "name": "表格",
+                                "type": "table",
+                                "table": {
+                                    "columns": [
+                                        {"id": "20260605120000-primary"},
+                                        {"id": "20260605120000-rela01"},
+                                        {"id": "20260605120000-status"},
+                                    ]
+                                },
+                            }
+                        ],
+                    }
+                }
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+            result = attributeview.siyuan_av_summary("20260605120000-av00001", includeRows=False)
+
+        keys = result["keys"]
+        self.assertEqual(
+            [key["id"] for key in keys],
+            [
+                "20260605120000-primary",
+                "20260605120000-rela01",
+                "20260605120000-status",
+            ],
+        )
+        relation_key = keys[1]
+        self.assertEqual(relation_key["name"], "关键人物")
+        self.assertEqual(relation_key["type"], "relation")
+        self.assertEqual(relation_key["relationTargetAvId"], "20260605120000-people")
+
     def test_validate_schema_reports_empty_name_relation_target_and_select_color(self):
         def fake_call(endpoint, _payload):
             if endpoint == "/api/av/getAttributeView":
