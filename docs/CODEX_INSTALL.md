@@ -58,8 +58,12 @@ packaging, marketplace testing, and possible future Codex plugin improvements.
 To upgrade after `stable` moves:
 
 ```bash
-uvx --refresh --from git+https://github.com/DarthVaderW/siyuan-mcp.git@stable siyuan-mcp --help >/dev/null
+uvx --refresh --from git+https://github.com/DarthVaderW/siyuan-mcp.git@stable \
+  python -c 'import importlib.metadata as m; print(m.version("siyuan-mcp"))'
 ```
+
+Do not use `siyuan-mcp --help` as a refresh check. It starts the stdio MCP
+server instead of printing normal CLI help.
 
 Then fully restart Codex. Existing threads can see refreshed MCP tools after
 restart; if they do not, open a new thread.
