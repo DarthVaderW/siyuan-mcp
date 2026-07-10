@@ -8,6 +8,9 @@ It does not import PDFs, call Zotero, or encode a project-specific note
 workflow. Higher-level clients decide where notes should live and how they
 should be structured.
 
+See [`docs/TOOLS.md`](docs/TOOLS.md) for the full tool contract: what each
+`siyuan_*` tool does.
+
 ## Install
 
 This repository ships one stdio MCP server. Codex and Claude Code use the same
