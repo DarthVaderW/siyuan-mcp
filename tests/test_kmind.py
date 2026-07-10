@@ -6,10 +6,51 @@ import copy
 import json
 import re
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
+from siyuan_mcp import core as C
 from siyuan_mcp import kmind as K
+
+
+def response_key(endpoint: str, payload: dict[str, Any]) -> tuple[str, str]:
+    return (endpoint, json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+@contextmanager
+def fake_siyuan(responses: dict[tuple[str, str], Any]) -> Iterator[list[tuple[str, dict]]]:
+    """Mock call_siyuan for both the core-path and the kmind-path in one test.
+
+    resolve_kmind_doc mixes two kinds of calls: core.py functions it now
+    imports (resolve_notebook_id, get_doc_id_by_path, get_hpath_by_id), whose
+    own call_siyuan reference lives in core.py's globals, and calls kmind.py
+    makes directly (getBlockAttrs, getConf), bound to the call_siyuan name
+    kmind.py imported at module load. Patching only one module's name would
+    silently miss the other, so this patches both to the same fake and yields
+    the shared call log. Any endpoint/payload not in `responses` raises.
+    """
+    calls: list[tuple[str, dict]] = []
+
+    def call(endpoint: str, payload: dict[str, Any] | None = None) -> Any:
+        payload = payload or {}
+        calls.append((endpoint, payload))
+        key = response_key(endpoint, payload)
+        if key not in responses:
+            raise AssertionError(f"unexpected SiYuan call: {endpoint} {payload}")
+        return responses[key]
+
+    original_core = C.call_siyuan
+    original_kmind = K.call_siyuan
+    C.call_siyuan = call  # type: ignore[assignment]
+    K.call_siyuan = call  # type: ignore[assignment]
+    try:
+        yield calls
+    finally:
+        C.call_siyuan = original_core  # type: ignore[assignment]
+        K.call_siyuan = original_kmind  # type: ignore[assignment]
 
 
 def test_html_text_and_rich_text() -> None:
@@ -864,6 +905,72 @@ def test_restore_kmind_backup_expected_sha_mismatch_aborts() -> None:
         # Aborted before any write: asset unchanged, no before-restore backup made.
         assert asset.read_bytes() == cur_bytes
         assert sorted(p.name for p in backup_dir.iterdir()) == before_files
+
+
+# --- Repair plan P0.3: notebook/doc-path resolution parity with core --------
+#
+# kmind.py used to carry its own _resolve_notebook_id / _doc_id_by_path /
+# _doc_hpath, duplicating core.py's resolve_notebook_id / get_doc_id_by_path /
+# get_hpath_by_id but without core's looks_like_siyuan_id fast path, so KMind
+# tools made an extra lsNotebooks call for an ID-shaped notebook argument that
+# every other tool skipped. These lock in that resolve_kmind_doc (the kmind
+# path) now resolves notebooks identically to resolve_notebook_id (the
+# core/server path used by server.py and links.py) in both the ID fast-path
+# case and the ordinary by-name lookup case.
+
+
+def _kmind_doc_responses(
+    notebook_id: str, doc_id: str, data_dir: str, hpath: str = "/MCP/Knowledge/README"
+) -> dict[tuple[str, str], Any]:
+    return {
+        response_key(
+            "/api/filetree/getIDsByHPath",
+            {"notebook": notebook_id, "path": hpath},
+        ): [{"id": doc_id}],
+        response_key("/api/attr/getBlockAttrs", {"id": doc_id}): {
+            K.DOC_KMIND_ASSET_ATTR: "assets/map.kmind",
+        },
+        response_key("/api/system/getConf", {}): {"conf": {"system": {"dataDir": data_dir}}},
+        response_key("/api/filetree/getHPathByID", {"id": doc_id}): hpath,
+    }
+
+
+def test_resolve_kmind_doc_id_shaped_notebook_matches_core_fast_path() -> None:
+    notebook_id = "20260602000000-abcde00"
+    doc_id = "20260602233246-8islm9u"
+    with tempfile.TemporaryDirectory() as tmp:
+        responses = _kmind_doc_responses(notebook_id, doc_id, tmp)
+        # No lsNotebooks entry: either path calling it fails the test outright.
+        with fake_siyuan(responses) as calls:
+            core_result = C.resolve_notebook_id(notebook_id)
+            meta = K.resolve_kmind_doc(path="/MCP/Knowledge/README", notebook=notebook_id)
+
+    assert core_result == notebook_id
+    assert meta["notebook"] == notebook_id
+    assert meta["docId"] == doc_id
+    assert meta["docPath"] == "/MCP/Knowledge/README"
+    assert all(endpoint != "/api/notebook/lsNotebooks" for endpoint, _ in calls)
+
+
+def test_resolve_kmind_doc_named_notebook_matches_core_lookup() -> None:
+    """Non-ID-shaped names still take the lsNotebooks lookup path, and kmind's
+    resolve_kmind_doc resolves to the same id core.resolve_notebook_id does."""
+    notebook_id = "box-id"
+    doc_id = "20260602233246-8islm9u"
+    with tempfile.TemporaryDirectory() as tmp:
+        responses = {
+            response_key("/api/notebook/lsNotebooks", {}): [{"id": notebook_id, "name": "CodeX"}],
+            **_kmind_doc_responses(notebook_id, doc_id, tmp),
+        }
+        with fake_siyuan(responses) as calls:
+            core_result = C.resolve_notebook_id("CodeX")
+            meta = K.resolve_kmind_doc(path="/MCP/Knowledge/README", notebook="CodeX")
+
+    assert core_result == notebook_id
+    assert meta["notebook"] == notebook_id
+    assert meta["docId"] == doc_id
+    lookups = [e for e in calls if e[0] == "/api/notebook/lsNotebooks"]
+    assert len(lookups) == 2  # one for the standalone core call, one inside resolve_kmind_doc
 
 
 def main() -> None:

@@ -23,7 +23,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from siyuan_mcp.core import call_siyuan, current_default_notebook, mcp
+from siyuan_mcp.core import (
+    call_siyuan,
+    get_doc_id_by_path,
+    get_hpath_by_id,
+    mcp,
+    resolve_notebook_id,
+)
 
 # --- Constants ---------------------------------------------------------------
 
@@ -83,39 +89,12 @@ def find_siyuan_data_dir() -> Path:
     return Path(data_dir)
 
 
-def _resolve_notebook_id(id_or_name: str | None) -> str:
-    candidate = id_or_name or current_default_notebook()
-    if not candidate:
-        raise ValueError("Notebook is required. Provide notebook or set SIYUAN_DEFAULT_NOTEBOOK.")
-    data = call_siyuan("/api/notebook/lsNotebooks", {})
-    notebooks = data.get("notebooks") if isinstance(data, dict) else data
-    for notebook in notebooks or []:
-        if isinstance(notebook, dict) and (
-            notebook.get("id") == candidate or notebook.get("name") == candidate
-        ):
-            return str(notebook["id"])
-    return str(candidate)
-
-
-def _doc_id_by_path(notebook_id: str, path: str) -> str | None:
-    clean = re.sub(r"/+", "/", path.strip().replace("\\", "/"))
-    clean = clean if clean.startswith("/") else f"/{clean}"
-    data = call_siyuan("/api/filetree/getIDsByHPath", {"notebook": notebook_id, "path": clean})
-    if isinstance(data, list) and data:
-        first = data[0]
-        return first.get("id") if isinstance(first, dict) else first
-    if isinstance(data, dict):
-        ids = data.get("ids")
-        if isinstance(ids, list) and ids:
-            first = ids[0]
-            return first.get("id") if isinstance(first, dict) else first
-        return data.get("id")
-    return None
-
-
-def _doc_hpath(doc_id: str) -> str | None:
-    data = call_siyuan("/api/filetree/getHPathByID", {"id": doc_id})
-    return str(data) if data else None
+# Notebook/doc-path resolution reuses core.py (resolve_notebook_id,
+# get_doc_id_by_path, get_hpath_by_id) instead of a local copy, so KMind tools
+# get the same looks_like_siyuan_id fast path as every other tool: an
+# ID-shaped notebook argument short-circuits without an lsNotebooks call.
+# (This module used to carry its own copies that skipped that fast path and
+# had drifted from core.py's behavior — see docs/REPAIR_PLAN_2026-07-10.md P0.3.)
 
 
 def resolve_kmind_doc(
@@ -128,8 +107,8 @@ def resolve_kmind_doc(
         resolved_id = doc_id
         notebook_id = None
     elif path:
-        notebook_id = _resolve_notebook_id(notebook)
-        resolved_id = _doc_id_by_path(notebook_id, path)
+        notebook_id = resolve_notebook_id(notebook)
+        resolved_id = get_doc_id_by_path(notebook_id, path)
         if not resolved_id:
             raise ValueError(f"Document not found for path: {path}")
     else:
@@ -157,7 +136,7 @@ def resolve_kmind_doc(
         raise ValueError(f"Resolved asset is not a .kmind file: {asset_rel}")
 
     title = attrs.get("custom-kmind-doctree-doc-init-title")
-    hpath = _doc_hpath(resolved_id)
+    hpath = get_hpath_by_id(resolved_id)
     exists = asset_abs.exists()
     sha256 = size_bytes = None
     if exists:
