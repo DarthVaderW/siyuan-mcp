@@ -1,0 +1,51 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # Same commands the umbrella repo's scripts/test_all.py runs for this
+      # component, plus the two guardrail/docs test files added alongside
+      # this workflow. All tests are offline (call_siyuan mocked; no live
+      # SiYuan kernel or network access required).
+      - name: Smoke test (tool registration)
+        run: >-
+          uv run python scripts/smoke_test_mcp.py --config-command
+          --expect-tool siyuan_ping
+          --expect-tool siyuan_av_create_table
+          --expect-tool siyuan_av_set_relation_cell
+
+      - name: tests/test_attributeview.py
+        run: uv run python tests/test_attributeview.py
+
+      - name: tests/test_links.py
+        run: uv run python tests/test_links.py
+
+      - name: tests/test_version.py
+        run: uv run python tests/test_version.py
+
+      - name: tests/test_kmind.py
+        run: uv run python tests/test_kmind.py
+
+      - name: tests/test_server_guards.py
+        run: uv run python tests/test_server_guards.py
+
+      - name: tests/test_tools_docs.py
+        run: uv run python tests/test_tools_docs.py
