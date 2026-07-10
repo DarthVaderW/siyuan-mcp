@@ -769,9 +769,15 @@ def _restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
     (data_dir / "assets").mkdir()
 
     good_sha = _write_kmind(backup_dir / "good.kmind", _sample_tree())
+    # Relative to "now" (not a hardcoded date): this backup feeds a real write
+    # path (test_restore_kmind_backup_real_round_trip) that calls write_backup,
+    # which runs cleanup_kmind_backups and drops anything older than
+    # MAX_BACKUP_AGE_DAYS. A fixed past date eventually ages out from under the
+    # test as wall-clock time advances; "5 days old" never does.
+    recent = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
     index = [{
         "source": "assets/map.kmind", "docId": "docA", "backupPath": "good.kmind",
-        "operation": "add-node", "createdAt": "2026-06-01T00:00:00+00:00",
+        "operation": "add-node", "createdAt": recent,
         "sha256Before": good_sha, "sizeBytes": (backup_dir / "good.kmind").stat().st_size,
     }]
     K._save_backup_index(backup_dir, index)
