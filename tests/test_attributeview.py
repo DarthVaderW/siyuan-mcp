@@ -12,7 +12,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from siyuan_mcp import attributeview
+from siyuan_mcp import attributeview, attributeview_rows, attributeview_views, core
 
 
 class AttributeViewToolsTest(unittest.TestCase):
@@ -52,7 +52,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return None
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_create_table(
                 "20260605115959-parent1",
                 avId="20260605120000-av00001",
@@ -97,7 +97,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return None
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_create_table(
                 "20260605115959-parent1",
                 avId="20260605120000-av00001",
@@ -138,7 +138,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 }
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_create_table(
                 "20260605115959-parent1",
                 avId="20260605120000-request",
@@ -165,7 +165,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return {"av": {"id": "20260605120000-av00001", "name": "论文总表"}}
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_set_name("20260605120000-av00001", "论文总表")
 
         self.assertEqual(result["name"], "论文总表")
@@ -192,8 +192,8 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return [{"doOperations": payload["transactions"][0]["doOperations"]}]
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
-            result = attributeview.siyuan_av_set_view_name(
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            result = attributeview_views.siyuan_av_set_view_name(
                 "20260605120000-av00001",
                 "20260605120000-view01",
                 "阅读队列",
@@ -222,8 +222,8 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return [{"doOperations": payload["transactions"][0]["doOperations"]}]
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
-            result = attributeview.siyuan_av_duplicate_view(
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            result = attributeview_views.siyuan_av_duplicate_view(
                 "20260605120000-av00001",
                 "20260605120000-avblock",
                 "20260605120000-source",
@@ -254,13 +254,13 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return [{"doOperations": payload["transactions"][0]["doOperations"]}]
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
-            add_result = attributeview.siyuan_av_add_view(
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            add_result = attributeview_views.siyuan_av_add_view(
                 "20260605120000-av00001",
                 "20260605120000-avblock",
                 viewId="20260605120000-view02",
             )
-            active_result = attributeview.siyuan_av_set_active_view(
+            active_result = attributeview_views.siyuan_av_set_active_view(
                 "20260605120000-av00001",
                 "20260605120000-avblock",
                 "20260605120000-view02",
@@ -322,8 +322,8 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return [{"doOperations": payload["transactions"][0]["doOperations"]}]
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
-            result = attributeview.siyuan_av_configure_table_view(
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            result = attributeview_views.siyuan_av_configure_table_view(
                 "20260605120000-av00001",
                 "20260605120000-avblock",
                 "20260605120000-view01",
@@ -478,7 +478,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return None
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_configure_relation(
                 "20260605120000-source",
                 "20260605120000-rela01",
@@ -543,8 +543,8 @@ class AttributeViewToolsTest(unittest.TestCase):
                 }
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
-            result = attributeview.siyuan_av_set_relation_cell(
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            result = attributeview_rows.siyuan_av_set_relation_cell(
                 "20260605120000-source",
                 "20260605120000-rela01",
                 "20260605120000-paper-row",
@@ -578,9 +578,9 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return {}
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             with self.assertRaisesRegex(ValueError, "Could not resolve target"):
-                attributeview.siyuan_av_set_relation_cell(
+                attributeview_rows.siyuan_av_set_relation_cell(
                     "20260605120000-source",
                     "20260605120000-rela01",
                     "20260605120000-paper-row",
@@ -611,15 +611,15 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return {"rows": []}
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
-            result = attributeview.siyuan_av_set_relation_cell(
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            result = attributeview_rows.siyuan_av_set_relation_cell(
                 "20260605120000-source",
                 "20260605120000-rela01",
                 "20260605120000-paper-row",
                 targetItemIds=["20260605120000-person-row"],
             )
             with self.assertRaisesRegex(ValueError, "rendered relation.contents"):
-                attributeview.siyuan_av_set_relation_cell(
+                attributeview_rows.siyuan_av_set_relation_cell(
                     "20260605120000-source",
                     "20260605120000-rela01",
                     "20260605120000-paper-row",
@@ -650,16 +650,16 @@ class AttributeViewToolsTest(unittest.TestCase):
                 }
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             with self.assertRaisesRegex(ValueError, "siyuan_av_set_relation_cell"):
-                attributeview.siyuan_av_set_cell(
+                attributeview_rows.siyuan_av_set_cell(
                     "20260605120000-source",
                     "20260605120000-rela01",
                     "20260605120000-paper-row",
                     ["20260605120000-person-doc"],
                 )
             with self.assertRaisesRegex(ValueError, "siyuan_av_set_relation_cell"):
-                attributeview.siyuan_av_batch_set_cells(
+                attributeview_rows.siyuan_av_batch_set_cells(
                     "20260605120000-source",
                     [
                         {
@@ -695,14 +695,14 @@ class AttributeViewToolsTest(unittest.TestCase):
                 return None
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
-            known = attributeview.siyuan_av_set_cell(
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            known = attributeview_rows.siyuan_av_set_cell(
                 "20260605120000-av00001",
                 "20260605120000-select1",
                 "20260605120000-row0001",
                 "追踪中",
             )
-            new = attributeview.siyuan_av_set_cell(
+            new = attributeview_rows.siyuan_av_set_cell(
                 "20260605120000-av00001",
                 "20260605120000-select1",
                 "20260605120000-row0001",
@@ -747,7 +747,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 }
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_summary("20260605120000-av00001")
 
         self.assertEqual(result["name"], "人物总表")
@@ -815,7 +815,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 }
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_summary("20260605120000-av00001", includeRows=False)
 
         keys = result["keys"]
@@ -864,7 +864,7 @@ class AttributeViewToolsTest(unittest.TestCase):
                 }
             raise AssertionError(endpoint)
 
-        with mock.patch.object(attributeview, "call_siyuan", side_effect=fake_call):
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
             result = attributeview.siyuan_av_validate_schema("20260605120000-av00001")
 
         codes = [issue["code"] for issue in result["issues"]]
@@ -872,6 +872,34 @@ class AttributeViewToolsTest(unittest.TestCase):
         self.assertIn("missing-av-name", codes)
         self.assertIn("relation-without-target-av", codes)
         self.assertIn("select-option-empty-color", codes)
+
+
+    def test_configure_view_can_preserve_existing_visibility(self):
+        view = {"id": "view", "type": "table", "table": {"columns": [
+            {"id": "title", "hidden": False}, {"id": "notes", "hidden": True},
+        ]}}
+        schema = {"id": "av", "views": [view], "keyValues": [
+            {"key": {"id": "title", "name": "Title", "type": "block"}},
+            {"key": {"id": "notes", "name": "Notes", "type": "text"}},
+        ]}
+        transactions = []
+
+        def fake_call(endpoint, payload):
+            if endpoint == "/api/av/getAttributeView":
+                return schema
+            if endpoint == "/api/transactions":
+                transactions.extend(payload["transactions"][0]["doOperations"])
+                return None
+            raise AssertionError(endpoint)
+
+        with mock.patch.object(core, "call_siyuan", side_effect=fake_call):
+            result = attributeview_views.siyuan_av_configure_table_view(
+                "av", "block", "view", ["title"], hideUnlisted=False,
+            )
+        self.assertFalse(result["hiddenUnlisted"])
+        self.assertEqual([op["action"] for op in transactions],
+                         ["setAttrViewBlockView", "sortAttrViewCol"])
+        self.assertTrue(view["table"]["columns"][1]["hidden"])
 
 
 if __name__ == "__main__":
