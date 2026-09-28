@@ -56,6 +56,11 @@ DarthVaderW/siyuan-mcp
 
 ## Configure
 
+KMind asset writes and backup-index updates coordinate across cooperating MCP
+processes with file locks and atomic replacement. SiYuan's own UI does not
+take these locks; a UI edit between the final hash check and replacement can
+still race. Re-read the KMind file after a conflict or external edit.
+
 Required local values:
 
 ```text
@@ -121,6 +126,11 @@ uv run python scripts/smoke_test_mcp.py --config-command --expect-tool siyuan_pi
 ```
 
 Expected: the server lists `siyuan_*` tools.
+
+For the complete offline suite (including KMind plain functions and MCP tool
+registration), run `uv sync --locked`, `uv run --no-sync python tests/run_all.py`,
+then `uv run --no-sync python scripts/smoke_test_mcp.py --expect-tool siyuan_ping`.
+The smoke command without `--ping` does not contact a live kernel.
 
 ## Troubleshooting
 
