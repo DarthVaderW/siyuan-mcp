@@ -144,11 +144,20 @@ The smoke command without `--ping` does not contact a live kernel.
 - `kmind.py`: SiYuan asset resolution and MCP tools. `kmind_tree.py` contains
   tree/style/outline/diff operations; `kmind_backups.py` owns retention and
   restoration; `kmind_storage.py` owns serialization, locks and atomic writes.
-- `core.py`: shared SiYuan transport/configuration. `server.py` registers all
-  tool groups on one MCP server; `links.py` supplies link helpers.
+- `server.py`: STDIO entry point, runtime resource, raw API gate, and explicit
+  registration of tool groups. `notebooks.py`, `documents.py`, `blocks.py`, and
+  `search.py` own the basic notebook/document/block/query tools.
+- `core.py`: shared SiYuan transport/configuration and common response helpers;
+  `links.py` supplies link helpers.
 
 The external MCP tool contracts are independent of these internal Python module
 paths. Run the complete suite when moving an operation between modules.
+
+Tests follow the same domains: `test_attributeview_{schema,rows,views}.py` and
+`test_kmind_{resolution,tree,storage,backups}.py`. Run `python tests/run_all.py`
+to include both unittest cases and plain test functions; each domain test file
+can also be run directly. `test_basic_tools.py` checks MCP dispatch and document
+workflows with the SiYuan transport stubbed.
 
 ## Troubleshooting
 
