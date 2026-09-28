@@ -65,6 +65,13 @@ SIYUAN_DEFAULT_NOTEBOOK=<default notebook name or id>
 SIYUAN_ALLOW_RAW_API=false
 ```
 
+For KMind tools on a local SiYuan 3.8.5 instance, also set
+`SIYUAN_DATA_DIR` to the absolute `data` directory of that same workspace,
+for example `C:/Users/<you>/SiYuan/data`. Recent kernels redact filesystem
+paths in `getConf`; KMind cannot discover the directory from that response.
+This optional setting is only for KMind's local files, not ordinary API tools.
+Do not point it at a different workspace or use it with a remote kernel.
+
 Codex users enter these in the custom STDIO MCP configuration. Claude Code users
 enter them through the plugin's `userConfig` prompt. For current Claude Code
 compatibility, the token is stored with the other plugin options instead of

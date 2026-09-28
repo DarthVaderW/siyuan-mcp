@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import random
 import re
 import shutil
@@ -73,13 +74,22 @@ MAX_BACKUP_TOTAL_BYTES = 100 * 1024 * 1024
 
 
 def find_siyuan_data_dir() -> Path:
+    configured = os.getenv("SIYUAN_DATA_DIR", "").strip()
+    if configured:
+        data_dir = Path(configured).expanduser()
+        if not data_dir.is_absolute() or not data_dir.is_dir():
+            raise ValueError("SIYUAN_DATA_DIR must be an existing absolute data directory.")
+        return data_dir.resolve()
     conf = call_siyuan("/api/system/getConf", {})
     system = (conf or {}).get("conf", {}).get("system", {}) if isinstance(conf, dict) else {}
     data_dir = system.get("dataDir") or (
         str(Path(system["workspaceDir"]) / "data") if system.get("workspaceDir") else None
     )
     if not data_dir:
-        raise RuntimeError("Could not resolve SiYuan data directory from /api/system/getConf.")
+        raise RuntimeError(
+            "SiYuan did not expose its local data directory. For local KMind tools, "
+            "set SIYUAN_DATA_DIR to this SiYuan workspace's absolute data directory."
+        )
     return Path(data_dir)
 
 

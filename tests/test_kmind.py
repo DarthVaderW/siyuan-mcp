@@ -6,10 +6,44 @@ import copy
 import json
 import re
 import tempfile
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from siyuan_mcp import kmind as K
+
+
+def test_data_dir_explicit_override_without_config_disclosure() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        with mock.patch.dict(K.os.environ, {"SIYUAN_DATA_DIR": tmp}):
+            with mock.patch.object(K, "call_siyuan", side_effect=AssertionError("no API needed")):
+                assert K.find_siyuan_data_dir() == Path(tmp).resolve()
+
+
+def test_data_dir_rejects_relative_override() -> None:
+    with mock.patch.dict(K.os.environ, {"SIYUAN_DATA_DIR": "relative/data"}):
+        try:
+            K.find_siyuan_data_dir()
+            raise AssertionError("relative override must fail")
+        except ValueError as error:
+            assert "absolute" in str(error)
+
+
+def test_data_dir_redacted_config_has_actionable_error() -> None:
+    with mock.patch.dict(K.os.environ, {"SIYUAN_DATA_DIR": ""}):
+        with mock.patch.object(K, "call_siyuan", return_value={"conf": {"system": {"dataDir": "", "workspaceDir": ""}}}):
+            try:
+                K.find_siyuan_data_dir()
+                raise AssertionError("redacted config must fail")
+            except RuntimeError as error:
+                assert "SIYUAN_DATA_DIR" in str(error)
+
+
+def test_data_dir_legacy_config_fallback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        with mock.patch.dict(K.os.environ, {"SIYUAN_DATA_DIR": ""}):
+            with mock.patch.object(K, "call_siyuan", return_value={"conf": {"system": {"dataDir": tmp}}}):
+                assert K.find_siyuan_data_dir() == Path(tmp)
 
 
 def test_html_text_and_rich_text() -> None:
@@ -771,7 +805,7 @@ def _restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
     good_sha = _write_kmind(backup_dir / "good.kmind", _sample_tree())
     index = [{
         "source": "assets/map.kmind", "docId": "docA", "backupPath": "good.kmind",
-        "operation": "add-node", "createdAt": "2026-06-01T00:00:00+00:00",
+        "operation": "add-node", "createdAt": datetime.now(timezone.utc).isoformat(),
         "sha256Before": good_sha, "sizeBytes": (backup_dir / "good.kmind").stat().st_size,
     }]
     K._save_backup_index(backup_dir, index)
