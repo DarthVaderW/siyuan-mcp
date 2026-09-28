@@ -41,4 +41,4 @@ def _write_kmind(path: Path, tree: dict) -> str:
     """Write a tree as a compact .kmind file; return its sha256 (as backups store)."""
     raw = F.dump_kmind_bytes(tree)
     path.write_bytes(raw)
-    return F._sha256(raw)
+    return F.sha256_bytes(raw)

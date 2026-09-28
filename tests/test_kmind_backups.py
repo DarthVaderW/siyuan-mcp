@@ -202,7 +202,7 @@ def test_list_kmind_backups_reads_what_write_backup_wrote() -> None:
         asset.write_bytes(b'{"root":{"data":{"text":"<p>x</p>"},"children":[]}}')
         name = B.write_backup(
             data_dir=data_dir, asset_abs=asset, asset_rel="assets/map.kmind",
-            doc_id="docZ", operation="add-node", sha256_before=F._sha256(asset.read_bytes()),
+            doc_id="docZ", operation="add-node", sha256_before=F.sha256_bytes(asset.read_bytes()),
             size_bytes=asset.stat().st_size, timestamp="20260601-120000-000000",
         )
         backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
@@ -212,7 +212,7 @@ def test_list_kmind_backups_reads_what_write_backup_wrote() -> None:
         entry = out["backups"][0]
         assert entry["backupPath"] == name
         assert entry["operation"] == "add-node"
-        assert entry["sha256Before"] == F._sha256(asset.read_bytes())
+        assert entry["sha256Before"] == F.sha256_bytes(asset.read_bytes())
         assert entry["source"] == "assets/map.kmind"
         assert entry["existsOnDisk"] is True
 
@@ -349,7 +349,7 @@ def test_restore_kmind_backup_dry_run_writes_nothing() -> None:
         backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
         before_files = sorted(p.name for p in backup_dir.iterdir())
         cur_bytes = asset.read_bytes()
-        cur_sha = F._sha256(cur_bytes)
+        cur_sha = F.sha256_bytes(cur_bytes)
 
         out = B.restore_kmind_backup(
             asset_abs=asset, data_dir=data_dir, asset_rel="assets/map.kmind",
@@ -372,7 +372,7 @@ def test_restore_kmind_backup_real_round_trip() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         data_dir, asset, good_sha, index = _restore_fixture(tmp)
         backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
-        cur_sha = F._sha256(asset.read_bytes())
+        cur_sha = F.sha256_bytes(asset.read_bytes())
         assert cur_sha != good_sha
 
         out = B.restore_kmind_backup(
@@ -384,12 +384,12 @@ def test_restore_kmind_backup_real_round_trip() -> None:
         assert out["dryRun"] is False
         assert out["sha256After"] == good_sha
         assert asset.read_bytes() == (backup_dir / "good.kmind").read_bytes()
-        assert T.node_plain_text(T._require_root(F.load_kmind(asset)[0])) == "Example KMind"
+        assert T.node_plain_text(T.require_root(F.load_kmind(asset)[0])) == "Example KMind"
 
         # A before-restore backup of the prior (damaged) content was created...
         created = out["backupCreated"]
         assert created and "before-restore" in created
-        assert F._sha256((backup_dir / created).read_bytes()) == cur_sha
+        assert F.sha256_bytes((backup_dir / created).read_bytes()) == cur_sha
         # ...and recorded in the index for docA with operation "restore".
         disk_index = json.loads((backup_dir / B.BACKUP_INDEX_NAME).read_text())
         assert any(

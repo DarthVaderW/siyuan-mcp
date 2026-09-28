@@ -38,9 +38,9 @@ def test_walk_and_find() -> None:
     depths = {T.node_plain_text(n): d for n, d, _p in T.walk_kmind_nodes(root)}
     assert depths == {"root": 0, "a": 1, "a1": 2, "b": 1}
 
-    outline = T._outline(root, max_depth=1, include_styles=False)
+    outline = T.build_outline(root, max_depth=1, include_styles=False)
     assert [o["text"] for o in outline] == ["root", "a", "b"]
-    assert T._outline_markdown(root, None) == "- root\n  - a\n    - a1\n  - b"
+    assert T.build_outline_markdown(root, None) == "- root\n  - a\n    - a1\n  - b"
 
 
 def test_apply_node_style_guards() -> None:
@@ -110,12 +110,12 @@ def _assert_no_line_field_changes(root: dict, before: dict, exempt: set | None =
 def test_add_node_leaves_existing_subtree_unchanged() -> None:
     """add_node must not alter any pre-existing node's data, nor add line style."""
     data = _sample_tree()
-    root = T._require_root(data)
+    root = T.require_root(data)
     before = _snapshot_data_by_uid(root)
 
     # Mirror siyuan_kmind_add_node's mutate(): locate parent, build the node
     # (with children), append under the parent. No existing node is touched.
-    parent = T._locate_parent(root, "u-kin", None)
+    parent = T.locate_parent_node(root, "u-kin", None)
     new_node = T.make_node("微分运动学", {"fillColor": "rgb(200,200,200)"})
     for child_text in ["雅可比", "奇异性"]:
         new_node["children"].append(T.make_node(child_text))
@@ -139,12 +139,12 @@ def test_add_node_leaves_existing_subtree_unchanged() -> None:
 def test_style_node_changes_only_declared_fields_on_target() -> None:
     """style_node (node_style only) must change only the target's declared fields."""
     data = _sample_tree()
-    root = T._require_root(data)
+    root = T.require_root(data)
     before = _snapshot_data_by_uid(root)
     target_uid = "u-dyn"
 
     # Mirror siyuan_kmind_style_node's mutate() with node_style only (no line_style).
-    target = T._locate_target(root, target_uid, None)
+    target = T.locate_target_node(root, target_uid, None)
     node_style = {"fillColor": "rgb(255,0,0)", "fontSize": 22}
     changed = T.apply_node_style(target["data"], node_style, None)
     assert set(changed) == set(node_style)
@@ -170,11 +170,11 @@ def test_style_node_changes_only_declared_fields_on_target() -> None:
 def test_style_node_line_style_does_not_repaint_siblings() -> None:
     """An explicit line_style on one node must not repaint any other branch."""
     data = _sample_tree()
-    root = T._require_root(data)
+    root = T.require_root(data)
     before = _snapshot_data_by_uid(root)
     target_uid = "u-fk"  # currently yellow rgb(237,185,81)
 
-    target = T._locate_target(root, target_uid, None)
+    target = T.locate_target_node(root, target_uid, None)
     node_style = {"color": "rgb(10,20,30)"}
     line_style = {"lineColor": "rgb(0,0,255)", "lineWidth": 4}
     changed = T.apply_node_style(target["data"], node_style, line_style)
@@ -215,7 +215,7 @@ def test_classify_kmind_field() -> None:
 
 def test_diff_kmind_trees_identical_is_empty() -> None:
     tree = _sample_tree()
-    diff = T.diff_kmind_trees(T._require_root(copy.deepcopy(tree)), T._require_root(tree))
+    diff = T.diff_kmind_trees(T.require_root(copy.deepcopy(tree)), T.require_root(tree))
     assert diff["added"] == [] and diff["removed"] == [] and diff["changed"] == []
     s = diff["summary"]
     assert (s["added"], s["removed"], s["changed"]) == (0, 0, 0)
@@ -226,7 +226,7 @@ def test_diff_kmind_trees_identical_is_empty() -> None:
 def test_diff_kmind_trees_added_removed_changed() -> None:
     ref_tree = _sample_tree()
     cur_tree = copy.deepcopy(ref_tree)
-    cur_root = T._require_root(cur_tree)
+    cur_root = T.require_root(cur_tree)
 
     # changed: u-dyn text (content) + new fillColor (nodeStyle) + lineColor (branchLine)
     target = T.find_node_by_uid(cur_root, "u-dyn")
@@ -239,7 +239,7 @@ def test_diff_kmind_trees_added_removed_changed() -> None:
     new_node = T.make_node("新节点")
     T.find_node_by_uid(cur_root, "u-kin")["children"].append(new_node)
 
-    diff = T.diff_kmind_trees(T._require_root(ref_tree), cur_root)
+    diff = T.diff_kmind_trees(T.require_root(ref_tree), cur_root)
 
     assert [a["uid"] for a in diff["added"]] == [T.node_uid(new_node)]
     assert [r["uid"] for r in diff["removed"]] == ["u-lag"]
@@ -272,10 +272,10 @@ def test_diff_kmind_trees_added_removed_changed() -> None:
 def test_diff_kmind_trees_detects_field_presence_change() -> None:
     ref_tree = _sample_tree()
     cur_tree = copy.deepcopy(ref_tree)
-    cur_root = T._require_root(cur_tree)
+    cur_root = T.require_root(cur_tree)
     T.find_node_by_uid(cur_root, "u-ik")["data"]["lineColor"] = None
 
-    diff = T.diff_kmind_trees(T._require_root(ref_tree), cur_root)
+    diff = T.diff_kmind_trees(T.require_root(ref_tree), cur_root)
 
     assert [c["uid"] for c in diff["changed"]] == ["u-ik"]
     ch = diff["changed"][0]

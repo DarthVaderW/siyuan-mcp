@@ -20,7 +20,7 @@ def _write_backup_worker(data_dir: str, asset_name: str, ready, start) -> None:
     start.wait(10)
     for sequence in range(8):
         B.write_backup(Path(data_dir), asset, asset_name, asset_name,
-                       "edit", F._sha256(raw), len(raw),
+                       "edit", F.sha256_bytes(raw), len(raw),
                        f"20260929-120000-{sequence:06d}", raw)
 
 
@@ -116,7 +116,7 @@ def test_edit_during_backup_aborts_without_overwrite() -> None:
         asset = root / "map.kmind"
         original = {"root": {"data": {"text": "original"}, "children": []}}
         asset.write_bytes(F.dump_kmind_bytes(original))
-        before = F._sha256(asset.read_bytes())
+        before = F.sha256_bytes(asset.read_bytes())
         ui_bytes = F.dump_kmind_bytes({"root": {"data": {"text": "UI edit"}, "children": []}})
         meta = {"assetAbsPath": str(asset), "assetRelPath": "assets/map.kmind", "docId": "fixture"}
 
@@ -164,7 +164,7 @@ def test_parallel_process_backups_preserve_index_entries() -> None:
                 if worker.is_alive():
                     worker.terminate()
                     worker.join()
-        backup_dir = B._backup_dir(root)
+        backup_dir = B.get_backup_dir(root)
         entries = B._load_backup_index(backup_dir)
         assert len(entries) == 16
         assert {entry["docId"] for entry in entries} == {"first.kmind", "second.kmind"}
@@ -177,13 +177,13 @@ def test_corrupt_index_aborts_without_overwrite() -> None:
         root = Path(tmp)
         asset = root / "map.kmind"
         asset.write_bytes(b"fixture")
-        backup_dir = B._backup_dir(root)
+        backup_dir = B.get_backup_dir(root)
         backup_dir.mkdir(parents=True)
         index_path = backup_dir / B.BACKUP_INDEX_NAME
         index_path.write_text("corrupt", encoding="utf-8")
         try:
             B.write_backup(root, asset, "map.kmind", "doc", "edit",
-                           F._sha256(b"fixture"), 7, "20260929-120000")
+                           F.sha256_bytes(b"fixture"), 7, "20260929-120000")
             raise AssertionError("corrupt index must fail")
         except ValueError as error:
             assert "Invalid KMind backup index" in str(error)
@@ -196,14 +196,14 @@ def test_backup_rejects_mismatched_hash_or_size() -> None:
         root = Path(tmp)
         asset = root / "map.kmind"
         asset.write_bytes(b"fixture")
-        for sha, size in (("wrong", 7), (F._sha256(b"fixture"), 8)):
+        for sha, size in (("wrong", 7), (F.sha256_bytes(b"fixture"), 8)):
             try:
                 B.write_backup(root, asset, "map.kmind", "doc", "edit",
                                sha, size, "20260929-120000")
                 raise AssertionError("mismatched backup metadata must fail")
             except ValueError as error:
                 assert "do not match" in str(error)
-        backup_dir = B._backup_dir(root)
+        backup_dir = B.get_backup_dir(root)
         assert not list(backup_dir.glob("*.kmind"))
 
 
@@ -239,8 +239,8 @@ def test_ui_edit_during_temp_file_fsync_aborts_commit() -> None:
 
         with mock.patch.object(kmind_storage.os, "fsync", side_effect=edit_during_fsync):
             try:
-                kmind_storage.commit_asset(asset, F._sha256(b"original"), b"MCP edit",
-                                            F._sha256, lambda _current: None)
+                kmind_storage.commit_asset(asset, F.sha256_bytes(b"original"), b"MCP edit",
+                                            F.sha256_bytes, lambda _current: None)
                 raise AssertionError("UI edit must abort commit")
             except ValueError as error:
                 assert "changed on disk" in str(error)
@@ -261,7 +261,7 @@ def test_backup_same_second_collision_keeps_both_files() -> None:
             asset_rel="assets/map.kmind",
             doc_id="doc1",
             operation="add-node",
-            sha256_before=F._sha256(asset.read_bytes()),
+            sha256_before=F.sha256_bytes(asset.read_bytes()),
             size_bytes=asset.stat().st_size,
             timestamp="20260601-120000-000000",
         )
@@ -271,7 +271,7 @@ def test_backup_same_second_collision_keeps_both_files() -> None:
             asset_rel="assets/map.kmind",
             doc_id="doc1",
             operation="add-node",
-            sha256_before=F._sha256(asset.read_bytes()),
+            sha256_before=F.sha256_bytes(asset.read_bytes()),
             size_bytes=asset.stat().st_size,
             timestamp="20260601-120000-000000",
         )

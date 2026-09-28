@@ -16,13 +16,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-def _sha256(data: bytes) -> str:
+def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
 def load_kmind(asset_abs: str | Path) -> tuple[dict[str, Any], str, int]:
     raw = Path(asset_abs).read_bytes()
-    return json.loads(raw.decode("utf-8")), _sha256(raw), len(raw)
+    return json.loads(raw.decode("utf-8")), sha256_bytes(raw), len(raw)
 
 
 def dump_kmind_bytes(data: dict[str, Any]) -> bytes:

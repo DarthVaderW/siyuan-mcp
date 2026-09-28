@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from siyuan_mcp.kmind_storage import _sha256, atomic_replace, commit_asset, file_lock, load_kmind
-from siyuan_mcp.kmind_tree import _require_root, diff_kmind_trees
+from siyuan_mcp.kmind_storage import sha256_bytes, atomic_replace, commit_asset, file_lock, load_kmind
+from siyuan_mcp.kmind_tree import require_root, diff_kmind_trees
 
 
 BACKUP_REL_DIR = ("storage", "siyuan-mcp-kmind-backups")
@@ -27,13 +27,13 @@ MAX_BACKUP_AGE_DAYS = 30
 MAX_BACKUP_TOTAL_BYTES = 100 * 1024 * 1024
 
 
-def _backup_dir(data_dir: Path) -> Path:
+def get_backup_dir(data_dir: Path) -> Path:
     return data_dir.joinpath(*BACKUP_REL_DIR)
 
 
-def _load_backup_view(data_dir: Path) -> list[dict[str, Any]]:
+def load_backup_view(data_dir: Path) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    backup_dir = _backup_dir(data_dir)
+    backup_dir = get_backup_dir(data_dir)
     for entry in _load_backup_index(backup_dir):
         decorated = dict(entry)
         decorated["_backupStore"] = "current"
@@ -122,10 +122,10 @@ def write_backup(
     timestamp: str,
     raw_bytes: bytes | None = None,
 ) -> str:
-    backup_dir = _backup_dir(data_dir)
+    backup_dir = get_backup_dir(data_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
     raw = asset_abs.read_bytes() if raw_bytes is None else raw_bytes
-    if _sha256(raw) != sha256_before or len(raw) != size_bytes:
+    if sha256_bytes(raw) != sha256_before or len(raw) != size_bytes:
         raise ValueError("KMind backup bytes do not match the recorded hash and size")
     # All index read/modify/write operations use this lock. Asset commits take
     # their asset lock first, then this shared index lock.
@@ -256,9 +256,9 @@ def list_kmind_backups(backup_dir: Path, index: list[dict[str, Any]], doc_id: st
     }
 
 
-def _load_kmind_root(asset_abs: str | Path) -> tuple[dict[str, Any], str, int]:
+def load_kmind_root(asset_abs: str | Path) -> tuple[dict[str, Any], str, int]:
     data, sha256, size_bytes = load_kmind(asset_abs)
-    return _require_root(data), sha256, size_bytes
+    return require_root(data), sha256, size_bytes
 
 
 def _latest_backup_entry(index: list[dict[str, Any]], doc_id: str) -> dict[str, Any] | None:
@@ -313,7 +313,7 @@ def resolve_diff_reference(
         ref_abs = Path(against_file)
         if not ref_abs.exists():
             raise FileNotFoundError(f"Reference .kmind file not found: {against_file}")
-        root, sha256, size_bytes = _load_kmind_root(ref_abs)
+        root, sha256, size_bytes = load_kmind_root(ref_abs)
         return {
             "status": "ok",
             "root": root,
@@ -342,7 +342,7 @@ def resolve_diff_reference(
             )
         if ref_abs is None or not ref_abs.exists():
             raise FileNotFoundError(f"Backup not found in backup stores: {against_backup_path}")
-        root, sha256, size_bytes = _load_kmind_root(ref_abs)
+        root, sha256, size_bytes = load_kmind_root(ref_abs)
         return {
             "status": "ok",
             "root": root,
@@ -361,7 +361,7 @@ def resolve_diff_reference(
             raise ValueError(f"Backup path escapes backup dir: {entry.get('backupPath')}")
         if not ref_abs.exists():
             raise FileNotFoundError(f"Backup file missing on disk: {entry['backupPath']}")
-        root, sha256, size_bytes = _load_kmind_root(ref_abs)
+        root, sha256, size_bytes = load_kmind_root(ref_abs)
         return {
             "status": "ok",
             "root": root,
@@ -394,7 +394,7 @@ def resolve_diff_reference(
             "reference": None,
             "message": f"Latest backup file is missing on disk: {entry['backupPath']}.",
         }
-    root, sha256, size_bytes = _load_kmind_root(ref_abs)
+    root, sha256, size_bytes = load_kmind_root(ref_abs)
     return {
         "status": "ok",
         "root": root,
@@ -454,14 +454,14 @@ def resolve_restore_source(
         raise FileNotFoundError(f"Backup file missing on disk: {entry.get('backupPath')!r}.")
 
     raw = backup_abs.read_bytes()
-    backup_sha256 = _sha256(raw)
+    backup_sha256 = sha256_bytes(raw)
     recorded_sha256 = entry.get("sha256Before")
     if recorded_sha256 and recorded_sha256 != backup_sha256:
         raise ValueError(
             f"Backup content hash mismatch for {entry.get('backupPath')!r}: "
             f"index records {recorded_sha256}, file is {backup_sha256}."
         )
-    root = _require_root(json.loads(raw.decode("utf-8")))  # validate restorable JSON + root
+    root = require_root(json.loads(raw.decode("utf-8")))  # validate restorable JSON + root
     return {
         "backupAbs": backup_abs,
         "backupRaw": raw,
@@ -504,13 +504,13 @@ def restore_kmind_backup(
     concurrent KMind UI edit, creates a ``before-restore`` backup of the current
     file, then writes the backup bytes back verbatim.
     """
-    backup_dir = _backup_dir(data_dir)
+    backup_dir = get_backup_dir(data_dir)
     src = resolve_restore_source(backup_dir, index, doc_id, backup_path, sha256_before)
 
     if not asset_abs.exists():
         raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
     cur_raw = asset_abs.read_bytes()
-    cur_sha = _sha256(cur_raw)
+    cur_sha = sha256_bytes(cur_raw)
     if expected_sha256 and expected_sha256 != cur_sha:
         raise ValueError(
             f"sha256 mismatch for {doc_id}: expected {expected_sha256}, on-disk "
@@ -520,7 +520,7 @@ def restore_kmind_backup(
     # Best-effort preview of what restoring would change (current -> backup).
     diff_summary: dict[str, Any] | None = None
     try:
-        cur_root = _require_root(json.loads(cur_raw.decode("utf-8")))
+        cur_root = require_root(json.loads(cur_raw.decode("utf-8")))
         diff_summary = diff_kmind_trees(cur_root, src["backupRoot"])["summary"]
     except (json.JSONDecodeError, ValueError):
         diff_summary = None
@@ -545,7 +545,7 @@ def restore_kmind_backup(
         return result
 
     backup_created = commit_asset(
-        asset_abs, cur_sha, src["backupRaw"], _sha256,
+        asset_abs, cur_sha, src["backupRaw"], sha256_bytes,
         lambda current: write_backup(
             data_dir=data_dir,
             asset_abs=asset_abs,
@@ -561,6 +561,6 @@ def restore_kmind_backup(
     new_raw = asset_abs.read_bytes()
     result["dryRun"] = False
     result["backupCreated"] = backup_created
-    result["sha256After"] = _sha256(new_raw)
+    result["sha256After"] = sha256_bytes(new_raw)
     result["sizeBytesAfter"] = len(new_raw)
     return result

@@ -140,7 +140,7 @@ def apply_node_style(
     return changed
 
 
-def _outline(root: dict[str, Any], max_depth: int | None, include_styles: bool) -> list[dict[str, Any]]:
+def build_outline(root: dict[str, Any], max_depth: int | None, include_styles: bool) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for node, depth, _path in walk_kmind_nodes(root):
         if max_depth is not None and depth > max_depth:
@@ -159,7 +159,7 @@ def _outline(root: dict[str, Any], max_depth: int | None, include_styles: bool) 
     return items
 
 
-def _outline_markdown(root: dict[str, Any], max_depth: int | None) -> str:
+def build_outline_markdown(root: dict[str, Any], max_depth: int | None) -> str:
     lines: list[str] = []
     for node, depth, _path in walk_kmind_nodes(root):
         if max_depth is not None and depth > max_depth:
@@ -256,14 +256,14 @@ def diff_kmind_trees(ref_root: dict[str, Any], cur_root: dict[str, Any]) -> dict
     return {"added": added, "removed": removed, "changed": changed, "summary": summary}
 
 
-def _require_root(data: dict[str, Any]) -> dict[str, Any]:
+def require_root(data: dict[str, Any]) -> dict[str, Any]:
     root = data.get("root")
     if not isinstance(root, dict):
         raise ValueError("KMind file has no valid root node.")
     return root
 
 
-def _locate_parent(
+def locate_parent_node(
     root: dict[str, Any],
     parent_uid: str | None,
     parent_text: str | None,
@@ -286,7 +286,7 @@ def _locate_parent(
     return root
 
 
-def _locate_target(
+def locate_target_node(
     root: dict[str, Any],
     node_uid_arg: str | None,
     node_text: str | None,

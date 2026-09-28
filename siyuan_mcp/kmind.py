@@ -16,21 +16,21 @@ from siyuan_mcp.core import (
     resolve_notebook_id,
 )
 from siyuan_mcp.kmind_backups import (
-    _backup_dir,
-    _load_backup_view,
-    _load_kmind_root,
+    get_backup_dir,
+    load_backup_view,
+    load_kmind_root,
     list_kmind_backups,
     resolve_diff_reference,
     restore_kmind_backup,
     write_backup,
 )
-from siyuan_mcp.kmind_storage import _sha256, commit_asset, dump_kmind_bytes, load_kmind
+from siyuan_mcp.kmind_storage import sha256_bytes, commit_asset, dump_kmind_bytes, load_kmind
 from siyuan_mcp.kmind_tree import (
-    _locate_parent,
-    _locate_target,
-    _outline,
-    _outline_markdown,
-    _require_root,
+    locate_parent_node,
+    locate_target_node,
+    build_outline,
+    build_outline_markdown,
+    require_root,
     apply_node_style,
     count_nodes,
     diff_kmind_trees,
@@ -108,7 +108,7 @@ def resolve_kmind_doc(
     sha256 = size_bytes = None
     if exists:
         raw = asset_abs.read_bytes()
-        sha256 = _sha256(raw)
+        sha256 = sha256_bytes(raw)
         size_bytes = len(raw)
 
     return {
@@ -173,9 +173,9 @@ def _write_with_guard(
             raw_bytes=original_bytes,
         )
 
-    backup_name = commit_asset(asset_abs, sha_before, new_bytes, _sha256, make_backup)
+    backup_name = commit_asset(asset_abs, sha_before, new_bytes, sha256_bytes, make_backup)
     base["dryRun"] = False
-    base["sha256After"] = _sha256(new_bytes)
+    base["sha256After"] = sha256_bytes(new_bytes)
     base["sizeBytes"] = len(new_bytes)
     base["backup"] = backup_name
     return base
@@ -202,7 +202,7 @@ def siyuan_kmind_read(
     """Read and summarize a KMind file as an outline (read-only, no backup)."""
     meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
     data, sha256, size_bytes = load_kmind(meta["assetAbsPath"])
-    root = _require_root(data)
+    root = require_root(data)
     return {
         "docId": meta["docId"],
         "title": meta["title"],
@@ -211,7 +211,7 @@ def siyuan_kmind_read(
         "root": {"uid": node_uid(root), "text": node_plain_text(root)},
         "nodeCount": count_nodes(root),
         "maxDepth": max_depth,
-        "outline": _outline(root, max_depth, include_styles),
+        "outline": build_outline(root, max_depth, include_styles),
     }
 
 
@@ -225,11 +225,11 @@ def siyuan_kmind_export_outline(
     """Export a KMind file as a Markdown bullet outline (read-only, no backup)."""
     meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
     data, sha256, _size = load_kmind(meta["assetAbsPath"])
-    root = _require_root(data)
+    root = require_root(data)
     return {
         "docId": meta["docId"],
         "sha256": sha256,
-        "markdown": _outline_markdown(root, max_depth),
+        "markdown": build_outline_markdown(root, max_depth),
     }
 
 
@@ -244,7 +244,7 @@ def siyuan_kmind_search_nodes(
     """Search KMind nodes by text; returns uid and the path from root (read-only)."""
     meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
     data, _sha, _size = load_kmind(meta["assetAbsPath"])
-    root = _require_root(data)
+    root = require_root(data)
     needle = query if case_sensitive else query.lower()
     matches: list[dict[str, Any]] = []
     for node, _depth, path_texts in walk_kmind_nodes(root):
@@ -281,8 +281,8 @@ def siyuan_kmind_add_node(
     meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
 
     def mutate(data: dict[str, Any]) -> dict[str, Any]:
-        root = _require_root(data)
-        parent = _locate_parent(root, parent_uid, parent_text)
+        root = require_root(data)
+        parent = locate_parent_node(root, parent_uid, parent_text)
         new_node = make_node(text, node_style)
         for child_text in children or []:
             if str(child_text).strip():
@@ -322,8 +322,8 @@ def siyuan_kmind_style_node(
     meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
 
     def mutate(data: dict[str, Any]) -> dict[str, Any]:
-        root = _require_root(data)
-        target = _locate_target(root, node_uid, node_text)
+        root = require_root(data)
+        target = locate_target_node(root, node_uid, node_text)
         changed = apply_node_style(target["data"], node_style, line_style)
         return {
             "styledUid": target.get("data", {}).get("uid"),
@@ -385,11 +385,11 @@ def siyuan_kmind_diff(
     asset_abs = Path(meta["assetAbsPath"])
     if not meta["exists"] or not asset_abs.exists():
         raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
-    cur_root, cur_sha256, cur_size = _load_kmind_root(asset_abs)
+    cur_root, cur_sha256, cur_size = load_kmind_root(asset_abs)
 
     data_dir = find_siyuan_data_dir()
-    backup_dir = _backup_dir(data_dir)
-    index = _load_backup_view(data_dir)
+    backup_dir = get_backup_dir(data_dir)
+    index = load_backup_view(data_dir)
     ref = resolve_diff_reference(
         backup_dir,
         index,
@@ -432,8 +432,8 @@ def siyuan_kmind_list_backups(
     """
     meta = resolve_kmind_doc(path=path, notebook=notebook, doc_id=doc_id)
     data_dir = find_siyuan_data_dir()
-    backup_dir = _backup_dir(data_dir)
-    index = _load_backup_view(data_dir)
+    backup_dir = get_backup_dir(data_dir)
+    index = load_backup_view(data_dir)
     return {
         "docId": meta["docId"],
         "title": meta["title"],
@@ -477,7 +477,7 @@ def siyuan_kmind_restore_backup(
     if not meta["exists"] or not asset_abs.exists():
         raise FileNotFoundError(f"KMind asset not found on disk: {asset_abs}")
     data_dir = find_siyuan_data_dir()
-    index = _load_backup_view(data_dir)
+    index = load_backup_view(data_dir)
     result = restore_kmind_backup(
         asset_abs=asset_abs,
         data_dir=data_dir,
