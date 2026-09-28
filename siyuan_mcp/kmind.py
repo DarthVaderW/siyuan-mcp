@@ -19,12 +19,12 @@ import json
 import os
 import random
 import re
-import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from siyuan_mcp.core import call_siyuan, current_default_notebook, mcp
+from siyuan_mcp.kmind_storage import atomic_replace, commit_asset, file_lock
 
 # --- Constants ---------------------------------------------------------------
 
@@ -358,18 +358,23 @@ def _load_backup_index(backup_dir: Path) -> list[dict[str, Any]]:
         return []
     try:
         loaded = json.loads(index_path.read_text(encoding="utf-8"))
-        return loaded if isinstance(loaded, list) else []
-    except json.JSONDecodeError:
-        return []
+        if not isinstance(loaded, list) or not all(isinstance(entry, dict) for entry in loaded):
+            raise ValueError(f"Invalid KMind backup index: {index_path}")
+        return loaded
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid KMind backup index: {index_path}") from exc
 
 
 def _save_backup_index(backup_dir: Path, index: list[dict[str, Any]]) -> None:
-    (backup_dir / BACKUP_INDEX_NAME).write_text(
-        json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
+    atomic_replace(
+        backup_dir / BACKUP_INDEX_NAME,
+        json.dumps(index, ensure_ascii=False, indent=2).encode("utf-8"),
     )
 
 
-def cleanup_kmind_backups(backup_dir: Path, index: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def cleanup_kmind_backups(
+    backup_dir: Path, index: list[dict[str, Any]], *, delete_files: bool = True,
+) -> list[dict[str, Any]]:
     """Enforce per-doc count, age, and total-size limits. Oldest removed first."""
     kept = list(index)
     removed: list[dict[str, Any]] = []
@@ -377,8 +382,8 @@ def cleanup_kmind_backups(backup_dir: Path, index: list[dict[str, Any]]) -> list
     def drop(entry: dict[str, Any]) -> None:
         kept.remove(entry)
         removed.append(entry)
-        target = backup_dir / entry.get("backupPath", "")
-        if target.name and target.exists():
+        target = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+        if delete_files and target is not None and target.is_file():
             target.unlink()
 
     # Age limit.
@@ -425,43 +430,67 @@ def write_backup(
     sha256_before: str,
     size_bytes: int,
     timestamp: str,
+    raw_bytes: bytes | None = None,
 ) -> str:
     backup_dir = _backup_dir(data_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_name = f"{timestamp}__{doc_id}__before-{operation}.kmind"
-    if (backup_dir / backup_name).exists():
-        suffix = "".join(random.choice("0123456789abcdef") for _ in range(6))
-        backup_name = f"{timestamp}__{doc_id}__before-{operation}-{suffix}.kmind"
-    shutil.copy2(asset_abs, backup_dir / backup_name)
-
-    index = _load_backup_index(backup_dir)
-    index.append(
-        {
-            "source": asset_rel,
-            "docId": doc_id,
-            "createdAt": datetime.now(timezone.utc).isoformat(),
-            "operation": operation,
-            "sha256Before": sha256_before,
-            "sizeBytes": size_bytes,
-            "backupPath": backup_name,
-        }
-    )
-    index = cleanup_kmind_backups(backup_dir, index)
-    _save_backup_index(backup_dir, index)
-    return backup_name
+    raw = asset_abs.read_bytes() if raw_bytes is None else raw_bytes
+    if _sha256(raw) != sha256_before or len(raw) != size_bytes:
+        raise ValueError("KMind backup bytes do not match the recorded hash and size")
+    # All index read/modify/write operations use this lock. Asset commits take
+    # their asset lock first, then this shared index lock.
+    with file_lock(backup_dir / BACKUP_INDEX_NAME):
+        backup_name = f"{timestamp}__{doc_id}__before-{operation}.kmind"
+        while (backup_dir / backup_name).exists():
+            suffix = "".join(random.choice("0123456789abcdef") for _ in range(6))
+            backup_name = f"{timestamp}__{doc_id}__before-{operation}-{suffix}.kmind"
+        target = _backup_path_in_dir(backup_dir, backup_name)
+        if target is None:
+            raise ValueError("Invalid generated KMind backup path")
+        atomic_replace(target, raw)
+        try:
+            previous = _load_backup_index(backup_dir)
+            updated = previous + [{
+                "source": asset_rel,
+                "docId": doc_id,
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+                "operation": operation,
+                "sha256Before": sha256_before,
+                "sizeBytes": size_bytes,
+                "backupPath": backup_name,
+            }]
+            kept = cleanup_kmind_backups(backup_dir, updated, delete_files=False)
+            _save_backup_index(backup_dir, kept)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        kept_paths = {entry.get("backupPath") for entry in kept}
+        for entry in updated:
+            if entry.get("backupPath") not in kept_paths:
+                stale = _backup_path_in_dir(backup_dir, entry.get("backupPath"))
+                if stale is not None and stale.is_file():
+                    stale.unlink(missing_ok=True)
+        return backup_name
 
 
 def _backup_path_in_dir(backup_dir: Path, backup_path: str | None) -> Path | None:
     """Resolve a backup path only if it stays inside the backup directory."""
-    if not backup_path:
+    if not isinstance(backup_path, str) or not backup_path.endswith(".kmind"):
+        return None
+    # Index records contain generated filenames, never absolute or nested paths.
+    # Checking both separators also rejects Windows paths on POSIX.
+    if "/" in backup_path or "\\" in backup_path or ":" in backup_path:
         return None
     base = backup_dir.resolve()
-    candidate = (backup_dir / str(backup_path)).resolve()
+    raw_candidate = backup_dir / backup_path
+    if raw_candidate.is_symlink():
+        return None
+    candidate = raw_candidate.resolve()
     try:
         candidate.relative_to(base)
     except ValueError:
         return None
-    return candidate
+    return candidate if candidate != base and not candidate.is_dir() else None
 
 
 def _entry_backup_dir(default_backup_dir: Path, entry: dict[str, Any]) -> Path:
@@ -698,7 +727,9 @@ def resolve_diff_reference(
         }
 
     if against_backup_path:
-        name = Path(against_backup_path).name
+        if _backup_path_in_dir(backup_dir, against_backup_path) is None:
+            raise ValueError(f"Invalid backup path: {against_backup_path!r}")
+        name = against_backup_path
         entry = _newest_entry([e for e in index if e.get("backupPath") == name])
         if entry:
             ref_abs = _entry_backup_path(backup_dir, entry)
@@ -706,7 +737,8 @@ def resolve_diff_reference(
                 raise ValueError(f"Backup path escapes backup dir: {against_backup_path}")
         else:
             ref_abs = next(
-                ((candidate / name) for candidate in _candidate_backup_dirs(backup_dir, index) if (candidate / name).exists()),
+                (path for candidate in _candidate_backup_dirs(backup_dir, index)
+                 if (path := _backup_path_in_dir(candidate, name)) is not None and path.is_file()),
                 None,
             )
         if ref_abs is None or not ref_abs.exists():
@@ -808,28 +840,22 @@ def _write_with_guard(
         base["wouldWriteBytes"] = len(new_bytes)
         return base
 
-    # Re-read just before writing to catch a concurrent UI edit during processing.
-    current = asset_abs.read_bytes()
-    if _sha256(current) != sha_before:
-        raise ValueError(
-            "KMind file changed on disk during processing; aborting to avoid "
-            "overwriting a concurrent edit. Re-read and retry."
-        )
-
-    backup_name = None
-    if backup:
-        backup_name = write_backup(
+    def make_backup(original_bytes: bytes) -> str | None:
+        if not backup:
+            return None
+        return write_backup(
             data_dir=find_siyuan_data_dir(),
             asset_abs=asset_abs,
             asset_rel=meta["assetRelPath"],
             doc_id=meta["docId"],
             operation=operation,
             sha256_before=sha_before,
-            size_bytes=size_before,
+            size_bytes=len(original_bytes),
             timestamp=datetime.now().strftime("%Y%m%d-%H%M%S-%f"),
+            raw_bytes=original_bytes,
         )
 
-    asset_abs.write_bytes(new_bytes)
+    backup_name = commit_asset(asset_abs, sha_before, new_bytes, _sha256, make_backup)
     base["dryRun"] = False
     base["sha256After"] = _sha256(new_bytes)
     base["sizeBytes"] = len(new_bytes)
@@ -917,7 +943,9 @@ def resolve_restore_source(
         )
 
     if backup_path:
-        name = Path(backup_path).name
+        if _backup_path_in_dir(backup_dir, backup_path) is None:
+            raise ValueError(f"Invalid backup path: {backup_path!r}")
+        name = backup_path
         entry = _newest_entry([e for e in index if e.get("backupPath") == name])
         if not entry:
             raise ValueError(f"No backup named {name!r} recorded in the index.")
@@ -1033,24 +1061,20 @@ def restore_kmind_backup(
         )
         return result
 
-    # Re-read just before writing to catch a concurrent UI edit during processing.
-    if _sha256(asset_abs.read_bytes()) != cur_sha:
-        raise ValueError(
-            "KMind file changed on disk during processing; aborting restore to "
-            "avoid overwriting a concurrent edit. Re-read and retry."
-        )
-
-    backup_created = write_backup(
-        data_dir=data_dir,
-        asset_abs=asset_abs,
-        asset_rel=asset_rel,
-        doc_id=doc_id,
-        operation="restore",
-        sha256_before=cur_sha,
-        size_bytes=len(cur_raw),
-        timestamp=datetime.now().strftime("%Y%m%d-%H%M%S-%f"),
+    backup_created = commit_asset(
+        asset_abs, cur_sha, src["backupRaw"], _sha256,
+        lambda current: write_backup(
+            data_dir=data_dir,
+            asset_abs=asset_abs,
+            asset_rel=asset_rel,
+            doc_id=doc_id,
+            operation="restore",
+            sha256_before=cur_sha,
+            size_bytes=len(current),
+            timestamp=datetime.now().strftime("%Y%m%d-%H%M%S-%f"),
+            raw_bytes=current,
+        ),
     )
-    asset_abs.write_bytes(src["backupRaw"])
     new_raw = asset_abs.read_bytes()
     result["dryRun"] = False
     result["backupCreated"] = backup_created
