@@ -135,6 +135,21 @@ registration), run `uv sync --locked`, `uv run --no-sync python tests/run_all.py
 then `uv run --no-sync python scripts/smoke_test_mcp.py --expect-tool siyuan_ping`.
 The smoke command without `--ping` does not contact a live kernel.
 
+## Source layout
+
+- `attributeview.py`, `attributeview_rows.py`, `attributeview_views.py`: database
+  schema, row/cell and view tools, respectively. `attributeview_values.py` holds
+  pure schema/value transformations; `attributeview_api.py` holds shared kernel
+  calls and the table-view transaction builder.
+- `kmind.py`: SiYuan asset resolution and MCP tools. `kmind_tree.py` contains
+  tree/style/outline/diff operations; `kmind_backups.py` owns retention and
+  restoration; `kmind_storage.py` owns serialization, locks and atomic writes.
+- `core.py`: shared SiYuan transport/configuration. `server.py` registers all
+  tool groups on one MCP server; `links.py` supplies link helpers.
+
+The external MCP tool contracts are independent of these internal Python module
+paths. Run the complete suite when moving an operation between modules.
+
 ## Troubleshooting
 
 If Claude Code reports that the MCP failed to start, check `uv` before
