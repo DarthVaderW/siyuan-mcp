@@ -140,7 +140,8 @@ The smoke command without `--ping` does not contact a live kernel.
 - `attributeview.py`, `attributeview_rows.py`, `attributeview_views.py`: database
   schema, row/cell and view tools, respectively. `attributeview_values.py` holds
   pure schema/value transformations; `attributeview_api.py` holds shared kernel
-  calls and the table-view transaction builder.
+  calls, rendering and the table-view transaction builder. Database tool
+  modules use those helpers instead of importing another tool module.
 - `kmind.py`: SiYuan asset resolution and MCP tools. `kmind_tree.py` contains
   tree/style/outline/diff operations; `kmind_backups.py` owns retention and
   restoration; `kmind_storage.py` owns serialization, locks and atomic writes.
@@ -151,7 +152,9 @@ The smoke command without `--ping` does not contact a live kernel.
   `links.py` supplies link helpers.
 
 The external MCP tool contracts are independent of these internal Python module
-paths. Run the complete suite when moving an operation between modules.
+paths. Shared package functions have ordinary names; leading-underscore
+helpers are private to their module. Run the complete suite when moving an
+operation between modules.
 
 Tests follow the same domains: `test_attributeview_{schema,rows,views}.py` and
 `test_kmind_{resolution,tree,storage,backups}.py`. Run `python tests/run_all.py`

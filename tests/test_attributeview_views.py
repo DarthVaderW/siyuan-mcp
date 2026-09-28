@@ -7,6 +7,30 @@ from siyuan_mcp import attributeview_views, core
 
 
 class AttributeViewViewsTest(unittest.TestCase):
+    def test_render_preserves_view_pagination_and_creation_options(self):
+        data = {"view": {"id": "view"}, "rows": [{"id": "row"}]}
+        with mock.patch.object(core, "call_siyuan", return_value=data) as api:
+            result = attributeview_views.siyuan_av_render(
+                "av", blockId="block", viewId="view", page=3,
+                pageSize=25, query="needle", createIfNotExist=True,
+            )
+
+        api.assert_called_once_with("/api/av/renderAttributeView", {
+            "id": "av", "blockID": "block", "viewID": "view", "page": 3,
+            "pageSize": 25, "query": "needle", "createIfNotExist": True,
+        })
+        self.assertEqual(result, {
+            "avId": "av", "blockId": "block", "viewId": "view", "page": 3,
+            "pageSize": 25, "result": data,
+        })
+
+    def test_render_rejects_invalid_pagination_before_request(self):
+        with mock.patch.object(core, "call_siyuan") as api:
+            for arguments in ({"page": 0}, {"pageSize": 0}, {"pageSize": 201}):
+                with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                    attributeview_views.siyuan_av_render("av", **arguments)
+        api.assert_not_called()
+
     def test_set_view_name_uses_view_transaction_operation(self):
         calls = []
 

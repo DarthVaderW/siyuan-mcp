@@ -209,3 +209,40 @@ def table_view_operations(
         previous_key_id = key_id
 
     return operations
+
+
+def render_attribute_view(
+    avId: str,
+    blockId: str | None = None,
+    viewId: str | None = None,
+    page: int = 1,
+    pageSize: int = 50,
+    query: str = "",
+    createIfNotExist: bool = False,
+) -> dict[str, Any]:
+    """Render a SiYuan database/attribute view."""
+    if page < 1:
+        raise ValueError("page must be >= 1")
+    if pageSize < 1 or pageSize > 200:
+        raise ValueError("pageSize must be between 1 and 200")
+
+    payload: dict[str, Any] = {
+        "id": avId,
+        "page": page,
+        "pageSize": pageSize,
+        "query": query,
+        "createIfNotExist": createIfNotExist,
+    }
+    if blockId:
+        payload["blockID"] = blockId
+    if viewId:
+        payload["viewID"] = viewId
+    data = core.call_siyuan("/api/av/renderAttributeView", payload)
+    return {
+        "avId": avId,
+        "blockId": blockId,
+        "viewId": viewId,
+        "page": page,
+        "pageSize": pageSize,
+        "result": data,
+    }

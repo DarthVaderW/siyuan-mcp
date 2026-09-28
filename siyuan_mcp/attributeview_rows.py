@@ -5,6 +5,7 @@ from typing import Any
 
 from siyuan_mcp import core
 from siyuan_mcp.attributeview_api import (
+    render_attribute_view,
     get_attribute_view,
     get_attribute_view_item_ids_by_bound_ids,
 )
@@ -17,7 +18,6 @@ from siyuan_mcp.attributeview_values import (
     relation_target_av_id,
     rendered_relation_values,
 )
-from siyuan_mcp.attributeview_views import siyuan_av_render
 from siyuan_mcp.core import generate_node_id, mcp
 
 
@@ -212,7 +212,7 @@ def siyuan_av_set_relation_cell(
 
     render_validation: dict[str, Any] | None = None
     if validateRender:
-        rendered = siyuan_av_render(
+        rendered = render_attribute_view(
             avId,
             blockId=blockId,
             viewId=viewId,

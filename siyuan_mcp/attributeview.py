@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from siyuan_mcp import core
 from siyuan_mcp.attributeview_api import (
+    render_attribute_view,
     get_attribute_view,
     read_attribute_view_id_from_block,
     run_transaction,
@@ -21,7 +22,6 @@ from siyuan_mcp.attributeview_values import (
     normalize_create_table_fields,
     relation_target_av_id,
 )
-from siyuan_mcp.attributeview_views import siyuan_av_render
 from siyuan_mcp.core import generate_node_id, mcp
 
 
@@ -95,7 +95,7 @@ def siyuan_av_create_table(
         raise RuntimeError("Could not resolve inserted AttributeView block id.")
     database_block_id = inserted[0]
 
-    rendered = siyuan_av_render(
+    rendered = render_attribute_view(
         generated_av_id,
         blockId=database_block_id,
         createIfNotExist=True,
@@ -106,7 +106,7 @@ def siyuan_av_create_table(
     warnings: list[str] = []
     if actual_av_id != generated_av_id:
         warnings.append("Inserted AttributeView block reported a different av id; using the block's av id.")
-        rendered = siyuan_av_render(
+        rendered = render_attribute_view(
             actual_av_id,
             blockId=database_block_id,
             createIfNotExist=True,

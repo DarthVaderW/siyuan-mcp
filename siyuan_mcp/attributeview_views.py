@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from siyuan_mcp import core
-from siyuan_mcp.attributeview_api import get_attribute_view, run_transaction, table_view_operations
+from siyuan_mcp.attributeview_api import (
+    get_attribute_view, render_attribute_view, run_transaction, table_view_operations,
+)
 from siyuan_mcp.attributeview_values import (
     attribute_view_key_map,
     attribute_view_table_columns,
@@ -29,31 +31,10 @@ def siyuan_av_render(
     createIfNotExist: bool = False,
 ) -> dict[str, Any]:
     """Render a SiYuan database/attribute view."""
-    if page < 1:
-        raise ValueError("page must be >= 1")
-    if pageSize < 1 or pageSize > 200:
-        raise ValueError("pageSize must be between 1 and 200")
-
-    payload: dict[str, Any] = {
-        "id": avId,
-        "page": page,
-        "pageSize": pageSize,
-        "query": query,
-        "createIfNotExist": createIfNotExist,
-    }
-    if blockId:
-        payload["blockID"] = blockId
-    if viewId:
-        payload["viewID"] = viewId
-    data = core.call_siyuan("/api/av/renderAttributeView", payload)
-    return {
-        "avId": avId,
-        "blockId": blockId,
-        "viewId": viewId,
-        "page": page,
-        "pageSize": pageSize,
-        "result": data,
-    }
+    return render_attribute_view(
+        avId=avId, blockId=blockId, viewId=viewId, page=page,
+        pageSize=pageSize, query=query, createIfNotExist=createIfNotExist,
+    )
 
 
 @mcp.tool()
