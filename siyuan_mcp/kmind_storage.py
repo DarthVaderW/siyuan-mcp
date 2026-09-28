@@ -1,17 +1,33 @@
-"""Best-effort serialized, atomic KMind file commits.
+"""KMind serialization and best-effort serialized, atomic file commits.
 
-The sidecar lock coordinates MCP processes only. SiYuan's UI does not take it,
-so the hash checks detect many external edits but cannot provide a true CAS.
+The sidecar lock coordinates MCP processes only. SiYuan UI does not take it,
+so hash checks detect external edits but cannot provide a true CAS.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def load_kmind(asset_abs: str | Path) -> tuple[dict[str, Any], str, int]:
+    raw = Path(asset_abs).read_bytes()
+    return json.loads(raw.decode("utf-8")), _sha256(raw), len(raw)
+
+
+def dump_kmind_bytes(data: dict[str, Any]) -> bytes:
+    # KMind writes compact JSON (no whitespace); match it to avoid reformat churn.
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 _thread_lock = threading.RLock()

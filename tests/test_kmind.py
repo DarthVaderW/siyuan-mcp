@@ -13,6 +13,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from siyuan_mcp import kmind as K
+from siyuan_mcp import kmind_tree as T
+from siyuan_mcp import kmind_backups as B
+from siyuan_mcp import kmind_storage as F
 from siyuan_mcp import core as C
 
 
@@ -22,8 +25,8 @@ def _write_backup_worker(data_dir: str, asset_name: str, ready, start) -> None:
     ready.put(True)
     start.wait(10)
     for sequence in range(8):
-        K.write_backup(Path(data_dir), asset, asset_name, asset_name,
-                       "edit", K._sha256(raw), len(raw),
+        B.write_backup(Path(data_dir), asset, asset_name, asset_name,
+                       "edit", F._sha256(raw), len(raw),
                        f"20260929-120000-{sequence:06d}", raw)
 
 
@@ -86,15 +89,15 @@ def test_kmind_resolution_reuses_core_id_fast_path() -> None:
 
 
 def test_html_text_and_rich_text() -> None:
-    assert K.kmind_html_text("<p><span>基于运动学</span></p>") == "基于运动学"
-    assert K.kmind_html_text("<p>a &amp; b</p>") == "a & b"
-    assert K.kmind_html_text(None) == ""
-    assert K.make_rich_text("hello") == "<p>hello</p>"
-    assert K.make_rich_text("a & b") == "<p>a &amp; b</p>"
+    assert T.kmind_html_text("<p><span>基于运动学</span></p>") == "基于运动学"
+    assert T.kmind_html_text("<p>a &amp; b</p>") == "a & b"
+    assert T.kmind_html_text(None) == ""
+    assert T.make_rich_text("hello") == "<p>hello</p>"
+    assert T.make_rich_text("a & b") == "<p>a &amp; b</p>"
 
 
 def test_uid_format() -> None:
-    uid = K.generate_kmind_uid()
+    uid = T.generate_kmind_uid()
     assert re.match(r"^kmind-node-\d{17}-[0-9a-f]{8}$", uid), uid
 
 
@@ -108,48 +111,48 @@ def test_walk_and_find() -> None:
             {"data": {"text": "<p>b</p>", "uid": "u-b"}, "children": []},
         ],
     }
-    assert K.count_nodes(root) == 4
-    assert K.find_node_by_uid(root, "u-a1")["data"]["uid"] == "u-a1"
-    assert K.find_node_by_uid(root, "missing") is None
-    assert len(K.find_nodes_by_text(root, "a1")) == 1
+    assert T.count_nodes(root) == 4
+    assert T.find_node_by_uid(root, "u-a1")["data"]["uid"] == "u-a1"
+    assert T.find_node_by_uid(root, "missing") is None
+    assert len(T.find_nodes_by_text(root, "a1")) == 1
 
-    depths = {K.node_plain_text(n): d for n, d, _p in K.walk_kmind_nodes(root)}
+    depths = {T.node_plain_text(n): d for n, d, _p in T.walk_kmind_nodes(root)}
     assert depths == {"root": 0, "a": 1, "a1": 2, "b": 1}
 
-    outline = K._outline(root, max_depth=1, include_styles=False)
+    outline = T._outline(root, max_depth=1, include_styles=False)
     assert [o["text"] for o in outline] == ["root", "a", "b"]
-    assert K._outline_markdown(root, None) == "- root\n  - a\n    - a1\n  - b"
+    assert T._outline_markdown(root, None) == "- root\n  - a\n    - a1\n  - b"
 
 
 def test_apply_node_style_guards() -> None:
     data: dict = {}
-    changed = K.apply_node_style(data, {"fillColor": "red", "fontSize": 14})
+    changed = T.apply_node_style(data, {"fillColor": "red", "fontSize": 14})
     assert set(changed) == {"fillColor", "fontSize"}
     assert data == {"fillColor": "red", "fontSize": 14}
 
     # lineColor is not a node style; must be rejected in node_style.
     try:
-        K.apply_node_style({}, {"lineColor": "x"})
+        T.apply_node_style({}, {"lineColor": "x"})
         raise AssertionError("expected ValueError for lineColor in node_style")
     except ValueError:
         pass
 
     # line_style accepts lineColor/lineWidth.
     d2: dict = {}
-    K.apply_node_style(d2, {}, {"lineColor": "rgb(1,2,3)", "lineWidth": 2})
+    T.apply_node_style(d2, {}, {"lineColor": "rgb(1,2,3)", "lineWidth": 2})
     assert d2 == {"lineColor": "rgb(1,2,3)", "lineWidth": 2}
 
 
 def test_dump_is_compact_and_roundtrips() -> None:
     data = {"root": {"data": {"text": "<p>中文</p>", "uid": "u"}, "children": []}}
-    raw = K.dump_kmind_bytes(data)
+    raw = F.dump_kmind_bytes(data)
     assert b" " not in raw  # compact (no spaces between tokens)
     assert "中文".encode("utf-8") in raw  # not ascii-escaped
     assert json.loads(raw.decode("utf-8")) == data
 
 
 def test_make_node() -> None:
-    node = K.make_node("hi", {"color": "blue"})
+    node = T.make_node("hi", {"color": "blue"})
     assert node["data"]["text"] == "<p>hi</p>"
     assert node["data"]["richText"] is True
     assert node["data"]["color"] == "blue"
@@ -203,9 +206,9 @@ def _sample_tree() -> dict:
 def _snapshot_data_by_uid(root: dict) -> dict:
     """{uid: deepcopy(node data)} for every node, for byte-for-byte comparison."""
     return {
-        K.node_uid(n): copy.deepcopy(n.get("data", {}))
-        for n, _d, _p in K.walk_kmind_nodes(root)
-        if K.node_uid(n)
+        T.node_uid(n): copy.deepcopy(n.get("data", {}))
+        for n, _d, _p in T.walk_kmind_nodes(root)
+        if T.node_uid(n)
     }
 
 
@@ -215,17 +218,17 @@ def _assert_no_line_field_changes(root: dict, before: dict, exempt: set | None =
     New nodes (uid absent from `before`) must carry no line fields at all.
     """
     exempt = exempt or set()
-    for node, _d, _p in K.walk_kmind_nodes(root):
-        uid = K.node_uid(node)
+    for node, _d, _p in T.walk_kmind_nodes(root):
+        uid = T.node_uid(node)
         if uid in exempt:
             continue
         data = node.get("data", {})
         if uid not in before:
-            for field in K.LINE_STYLE_FIELDS:
+            for field in T.LINE_STYLE_FIELDS:
                 assert field not in data, f"new node {uid} gained line field {field!r}"
             continue
         prior = before[uid]
-        for field in K.LINE_STYLE_FIELDS:
+        for field in T.LINE_STYLE_FIELDS:
             assert (field in data) == (field in prior), (
                 f"line field {field!r} presence on node {uid} changed: "
                 f"{field in prior!r} -> {field in data!r}"
@@ -239,19 +242,19 @@ def _assert_no_line_field_changes(root: dict, before: dict, exempt: set | None =
 def test_add_node_leaves_existing_subtree_unchanged() -> None:
     """add_node must not alter any pre-existing node's data, nor add line style."""
     data = _sample_tree()
-    root = K._require_root(data)
+    root = T._require_root(data)
     before = _snapshot_data_by_uid(root)
 
     # Mirror siyuan_kmind_add_node's mutate(): locate parent, build the node
     # (with children), append under the parent. No existing node is touched.
-    parent = K._locate_parent(root, "u-kin", None)
-    new_node = K.make_node("微分运动学", {"fillColor": "rgb(200,200,200)"})
+    parent = T._locate_parent(root, "u-kin", None)
+    new_node = T.make_node("微分运动学", {"fillColor": "rgb(200,200,200)"})
     for child_text in ["雅可比", "奇异性"]:
-        new_node["children"].append(K.make_node(child_text))
+        new_node["children"].append(T.make_node(child_text))
     parent.setdefault("children", []).append(new_node)
 
     # (a) every pre-existing node's data is byte-for-byte identical.
-    after = {K.node_uid(n): n.get("data", {}) for n, _d, _p in K.walk_kmind_nodes(root)}
+    after = {T.node_uid(n): n.get("data", {}) for n, _d, _p in T.walk_kmind_nodes(root)}
     for uid, snapshot in before.items():
         assert after[uid] == snapshot, f"existing node {uid} data changed"
 
@@ -261,21 +264,21 @@ def test_add_node_leaves_existing_subtree_unchanged() -> None:
     assert "lineColor" not in new_node["data"] and "lineWidth" not in new_node["data"]
 
     # The new node was appended last under the chosen parent and nothing else moved.
-    assert K.node_uid(parent["children"][-1]) == K.node_uid(new_node)
-    assert K.count_nodes(root) == len(before) + 3  # new node + its 2 children
+    assert T.node_uid(parent["children"][-1]) == T.node_uid(new_node)
+    assert T.count_nodes(root) == len(before) + 3  # new node + its 2 children
 
 
 def test_style_node_changes_only_declared_fields_on_target() -> None:
     """style_node (node_style only) must change only the target's declared fields."""
     data = _sample_tree()
-    root = K._require_root(data)
+    root = T._require_root(data)
     before = _snapshot_data_by_uid(root)
     target_uid = "u-dyn"
 
     # Mirror siyuan_kmind_style_node's mutate() with node_style only (no line_style).
-    target = K._locate_target(root, target_uid, None)
+    target = T._locate_target(root, target_uid, None)
     node_style = {"fillColor": "rgb(255,0,0)", "fontSize": 22}
-    changed = K.apply_node_style(target["data"], node_style, None)
+    changed = T.apply_node_style(target["data"], node_style, None)
     assert set(changed) == set(node_style)
 
     after = _snapshot_data_by_uid(root)
@@ -299,14 +302,14 @@ def test_style_node_changes_only_declared_fields_on_target() -> None:
 def test_style_node_line_style_does_not_repaint_siblings() -> None:
     """An explicit line_style on one node must not repaint any other branch."""
     data = _sample_tree()
-    root = K._require_root(data)
+    root = T._require_root(data)
     before = _snapshot_data_by_uid(root)
     target_uid = "u-fk"  # currently yellow rgb(237,185,81)
 
-    target = K._locate_target(root, target_uid, None)
+    target = T._locate_target(root, target_uid, None)
     node_style = {"color": "rgb(10,20,30)"}
     line_style = {"lineColor": "rgb(0,0,255)", "lineWidth": 4}
-    changed = K.apply_node_style(target["data"], node_style, line_style)
+    changed = T.apply_node_style(target["data"], node_style, line_style)
     assert set(changed) == set(node_style) | set(line_style)
 
     after = _snapshot_data_by_uid(root)
@@ -347,8 +350,8 @@ def test_backup_retention_per_doc_count() -> None:
                 "sizeBytes": 2,
                 "backupPath": name,
             })
-        kept = K.cleanup_kmind_backups(backup_dir, index)
-        assert len(kept) == K.MAX_BACKUPS_PER_DOC == 20
+        kept = B.cleanup_kmind_backups(backup_dir, index)
+        assert len(kept) == B.MAX_BACKUPS_PER_DOC == 20
         # The 5 oldest files are gone from disk.
         assert not (backup_dir / "b00.kmind").exists()
         assert (backup_dir / "b24.kmind").exists()
@@ -367,7 +370,7 @@ def test_backup_retention_age_limit() -> None:
             {"docId": "d", "createdAt": datetime.now(timezone.utc).isoformat(),
              "sizeBytes": 2, "backupPath": "new.kmind"},
         ]
-        kept = K.cleanup_kmind_backups(backup_dir, index)
+        kept = B.cleanup_kmind_backups(backup_dir, index)
         assert [e["backupPath"] for e in kept] == ["new.kmind"]
         assert not old.exists() and new.exists()
 
@@ -379,16 +382,16 @@ def test_cleanup_rejects_paths_outside_backup_dir() -> None:
         backups.mkdir()
         victim = root / "victim.kmind"
         victim.write_bytes(b"keep")
-        (backups / K.BACKUP_INDEX_NAME).write_text("[]")
-        (backups / (K.BACKUP_INDEX_NAME + ".mcp.lock")).write_bytes(b"lock")
+        (backups / B.BACKUP_INDEX_NAME).write_text("[]")
+        (backups / (B.BACKUP_INDEX_NAME + ".mcp.lock")).write_bytes(b"lock")
         for bad in ("../victim.kmind", str(victim), "", ".",
-                    K.BACKUP_INDEX_NAME, K.BACKUP_INDEX_NAME + ".mcp.lock"):
+                    B.BACKUP_INDEX_NAME, B.BACKUP_INDEX_NAME + ".mcp.lock"):
             entries = [{"docId": "d", "backupPath": bad, "sizeBytes": 4,
                         "createdAt": (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()}]
-            assert K.cleanup_kmind_backups(backups, entries) == []
+            assert B.cleanup_kmind_backups(backups, entries) == []
             assert victim.read_bytes() == b"keep"
-            assert (backups / K.BACKUP_INDEX_NAME).read_text() == "[]"
-            assert (backups / (K.BACKUP_INDEX_NAME + ".mcp.lock")).read_bytes() == b"lock"
+            assert (backups / B.BACKUP_INDEX_NAME).read_text() == "[]"
+            assert (backups / (B.BACKUP_INDEX_NAME + ".mcp.lock")).read_bytes() == b"lock"
 
 
 def test_cleanup_does_not_follow_backup_symlink() -> None:
@@ -405,7 +408,7 @@ def test_cleanup_does_not_follow_backup_symlink() -> None:
             raise unittest.SkipTest("symlink creation is unavailable")
         entry = {"docId": "d", "backupPath": "linked.kmind", "sizeBytes": 4,
                  "createdAt": (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()}
-        assert K.cleanup_kmind_backups(backups, [entry]) == []
+        assert B.cleanup_kmind_backups(backups, [entry]) == []
         assert link.is_symlink() and victim.read_bytes() == b"keep"
 
 
@@ -414,9 +417,9 @@ def test_edit_during_backup_aborts_without_overwrite() -> None:
         root = Path(tmp)
         asset = root / "map.kmind"
         original = {"root": {"data": {"text": "original"}, "children": []}}
-        asset.write_bytes(K.dump_kmind_bytes(original))
-        before = K._sha256(asset.read_bytes())
-        ui_bytes = K.dump_kmind_bytes({"root": {"data": {"text": "UI edit"}, "children": []}})
+        asset.write_bytes(F.dump_kmind_bytes(original))
+        before = F._sha256(asset.read_bytes())
+        ui_bytes = F.dump_kmind_bytes({"root": {"data": {"text": "UI edit"}, "children": []}})
         meta = {"assetAbsPath": str(asset), "assetRelPath": "assets/map.kmind", "docId": "fixture"}
 
         def during_backup(**_kwargs):
@@ -463,8 +466,8 @@ def test_parallel_process_backups_preserve_index_entries() -> None:
                 if worker.is_alive():
                     worker.terminate()
                     worker.join()
-        backup_dir = K._backup_dir(root)
-        entries = K._load_backup_index(backup_dir)
+        backup_dir = B._backup_dir(root)
+        entries = B._load_backup_index(backup_dir)
         assert len(entries) == 16
         assert {entry["docId"] for entry in entries} == {"first.kmind", "second.kmind"}
         assert all((backup_dir / entry["backupPath"]).read_bytes() == b"fixture"
@@ -476,13 +479,13 @@ def test_corrupt_index_aborts_without_overwrite() -> None:
         root = Path(tmp)
         asset = root / "map.kmind"
         asset.write_bytes(b"fixture")
-        backup_dir = K._backup_dir(root)
+        backup_dir = B._backup_dir(root)
         backup_dir.mkdir(parents=True)
-        index_path = backup_dir / K.BACKUP_INDEX_NAME
+        index_path = backup_dir / B.BACKUP_INDEX_NAME
         index_path.write_text("corrupt", encoding="utf-8")
         try:
-            K.write_backup(root, asset, "map.kmind", "doc", "edit",
-                           K._sha256(b"fixture"), 7, "20260929-120000")
+            B.write_backup(root, asset, "map.kmind", "doc", "edit",
+                           F._sha256(b"fixture"), 7, "20260929-120000")
             raise AssertionError("corrupt index must fail")
         except ValueError as error:
             assert "Invalid KMind backup index" in str(error)
@@ -495,14 +498,14 @@ def test_backup_rejects_mismatched_hash_or_size() -> None:
         root = Path(tmp)
         asset = root / "map.kmind"
         asset.write_bytes(b"fixture")
-        for sha, size in (("wrong", 7), (K._sha256(b"fixture"), 8)):
+        for sha, size in (("wrong", 7), (F._sha256(b"fixture"), 8)):
             try:
-                K.write_backup(root, asset, "map.kmind", "doc", "edit",
+                B.write_backup(root, asset, "map.kmind", "doc", "edit",
                                sha, size, "20260929-120000")
                 raise AssertionError("mismatched backup metadata must fail")
             except ValueError as error:
                 assert "do not match" in str(error)
-        backup_dir = K._backup_dir(root)
+        backup_dir = B._backup_dir(root)
         assert not list(backup_dir.glob("*.kmind"))
 
 
@@ -538,8 +541,8 @@ def test_ui_edit_during_temp_file_fsync_aborts_commit() -> None:
 
         with mock.patch.object(kmind_storage.os, "fsync", side_effect=edit_during_fsync):
             try:
-                kmind_storage.commit_asset(asset, K._sha256(b"original"), b"MCP edit",
-                                            K._sha256, lambda _current: None)
+                kmind_storage.commit_asset(asset, F._sha256(b"original"), b"MCP edit",
+                                            F._sha256, lambda _current: None)
                 raise AssertionError("UI edit must abort commit")
             except ValueError as error:
                 assert "changed on disk" in str(error)
@@ -554,32 +557,32 @@ def test_backup_same_second_collision_keeps_both_files() -> None:
         asset.parent.mkdir()
         asset.write_bytes(b'{"root":{"data":{"text":"<p>x</p>"},"children":[]}}')
 
-        first = K.write_backup(
+        first = B.write_backup(
             data_dir=data_dir,
             asset_abs=asset,
             asset_rel="assets/map.kmind",
             doc_id="doc1",
             operation="add-node",
-            sha256_before=K._sha256(asset.read_bytes()),
+            sha256_before=F._sha256(asset.read_bytes()),
             size_bytes=asset.stat().st_size,
             timestamp="20260601-120000-000000",
         )
-        second = K.write_backup(
+        second = B.write_backup(
             data_dir=data_dir,
             asset_abs=asset,
             asset_rel="assets/map.kmind",
             doc_id="doc1",
             operation="add-node",
-            sha256_before=K._sha256(asset.read_bytes()),
+            sha256_before=F._sha256(asset.read_bytes()),
             size_bytes=asset.stat().st_size,
             timestamp="20260601-120000-000000",
         )
 
-        backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
         assert first != second
         assert (backup_dir / first).exists()
         assert (backup_dir / second).exists()
-        index = json.loads((backup_dir / K.BACKUP_INDEX_NAME).read_text())
+        index = json.loads((backup_dir / B.BACKUP_INDEX_NAME).read_text())
         assert [entry["backupPath"] for entry in index] == [first, second]
 
 
@@ -593,25 +596,25 @@ def test_backup_same_second_collision_keeps_both_files() -> None:
 
 def _write_kmind(path: Path, tree: dict) -> str:
     """Write a tree as a compact .kmind file; return its sha256 (as backups store)."""
-    raw = K.dump_kmind_bytes(tree)
+    raw = F.dump_kmind_bytes(tree)
     path.write_bytes(raw)
-    return K._sha256(raw)
+    return F._sha256(raw)
 
 
 def test_classify_kmind_field() -> None:
-    assert K.classify_kmind_field("text") == "content"
-    assert K.classify_kmind_field("note") == "content"
-    assert K.classify_kmind_field("fillColor") == "nodeStyle"
-    assert K.classify_kmind_field("fontSize") == "nodeStyle"
-    assert K.classify_kmind_field("lineColor") == "branchLine"
-    assert K.classify_kmind_field("lineWidth") == "branchLine"
-    assert K.classify_kmind_field("expand") == "other"
-    assert K.classify_kmind_field("richText") == "other"
+    assert T.classify_kmind_field("text") == "content"
+    assert T.classify_kmind_field("note") == "content"
+    assert T.classify_kmind_field("fillColor") == "nodeStyle"
+    assert T.classify_kmind_field("fontSize") == "nodeStyle"
+    assert T.classify_kmind_field("lineColor") == "branchLine"
+    assert T.classify_kmind_field("lineWidth") == "branchLine"
+    assert T.classify_kmind_field("expand") == "other"
+    assert T.classify_kmind_field("richText") == "other"
 
 
 def test_diff_kmind_trees_identical_is_empty() -> None:
     tree = _sample_tree()
-    diff = K.diff_kmind_trees(K._require_root(copy.deepcopy(tree)), K._require_root(tree))
+    diff = T.diff_kmind_trees(T._require_root(copy.deepcopy(tree)), T._require_root(tree))
     assert diff["added"] == [] and diff["removed"] == [] and diff["changed"] == []
     s = diff["summary"]
     assert (s["added"], s["removed"], s["changed"]) == (0, 0, 0)
@@ -622,22 +625,22 @@ def test_diff_kmind_trees_identical_is_empty() -> None:
 def test_diff_kmind_trees_added_removed_changed() -> None:
     ref_tree = _sample_tree()
     cur_tree = copy.deepcopy(ref_tree)
-    cur_root = K._require_root(cur_tree)
+    cur_root = T._require_root(cur_tree)
 
     # changed: u-dyn text (content) + new fillColor (nodeStyle) + lineColor (branchLine)
-    target = K.find_node_by_uid(cur_root, "u-dyn")
+    target = T.find_node_by_uid(cur_root, "u-dyn")
     target["data"]["text"] = "<p>动力学(改)</p>"
     target["data"]["fillColor"] = "rgb(1,2,3)"
     target["data"]["lineColor"] = "rgb(9,9,9)"
     # removed: leaf u-lag
-    target["children"] = [c for c in target["children"] if K.node_uid(c) != "u-lag"]
+    target["children"] = [c for c in target["children"] if T.node_uid(c) != "u-lag"]
     # added: a fresh child under u-kin
-    new_node = K.make_node("新节点")
-    K.find_node_by_uid(cur_root, "u-kin")["children"].append(new_node)
+    new_node = T.make_node("新节点")
+    T.find_node_by_uid(cur_root, "u-kin")["children"].append(new_node)
 
-    diff = K.diff_kmind_trees(K._require_root(ref_tree), cur_root)
+    diff = T.diff_kmind_trees(T._require_root(ref_tree), cur_root)
 
-    assert [a["uid"] for a in diff["added"]] == [K.node_uid(new_node)]
+    assert [a["uid"] for a in diff["added"]] == [T.node_uid(new_node)]
     assert [r["uid"] for r in diff["removed"]] == ["u-lag"]
     assert [c["uid"] for c in diff["changed"]] == ["u-dyn"]
 
@@ -668,10 +671,10 @@ def test_diff_kmind_trees_added_removed_changed() -> None:
 def test_diff_kmind_trees_detects_field_presence_change() -> None:
     ref_tree = _sample_tree()
     cur_tree = copy.deepcopy(ref_tree)
-    cur_root = K._require_root(cur_tree)
-    K.find_node_by_uid(cur_root, "u-ik")["data"]["lineColor"] = None
+    cur_root = T._require_root(cur_tree)
+    T.find_node_by_uid(cur_root, "u-ik")["data"]["lineColor"] = None
 
-    diff = K.diff_kmind_trees(K._require_root(ref_tree), cur_root)
+    diff = T.diff_kmind_trees(T._require_root(ref_tree), cur_root)
 
     assert [c["uid"] for c in diff["changed"]] == ["u-ik"]
     ch = diff["changed"][0]
@@ -697,7 +700,7 @@ def test_resolve_diff_reference_latest_backup_reports_selection() -> None:
             {"docId": "docX", "backupPath": "new.kmind", "operation": "style-node",
              "createdAt": (base + timedelta(hours=1)).isoformat(), "sha256Before": new_sha, "sizeBytes": 1},
         ]
-        ref = K.resolve_diff_reference(backup_dir, index, "docX")
+        ref = B.resolve_diff_reference(backup_dir, index, "docX")
         assert ref["status"] == "ok"
         # Picked the newest by createdAt, not by file/index order, and reported it.
         report = ref["reference"]
@@ -707,12 +710,12 @@ def test_resolve_diff_reference_latest_backup_reports_selection() -> None:
         assert report["sha256Before"] == new_sha and report["sha256"] == new_sha
         assert report["backupStore"] is None
         assert Path(report["backupDir"]).resolve() == backup_dir.resolve()
-        assert K.node_plain_text(ref["root"]) == "MARKER"
+        assert T.node_plain_text(ref["root"]) == "MARKER"
 
 
 def test_resolve_diff_reference_no_reference_available() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        ref = K.resolve_diff_reference(Path(tmp), [], "docX")
+        ref = B.resolve_diff_reference(Path(tmp), [], "docX")
         assert ref["status"] == "no-reference-available"
         assert ref["root"] is None and ref["reference"] is None
         assert "backup" in ref["message"].lower()
@@ -722,12 +725,12 @@ def test_resolve_diff_reference_explicit_file() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         ref_file = Path(tmp) / "other.kmind"
         sha = _write_kmind(ref_file, _sample_tree())
-        ref = K.resolve_diff_reference(Path(tmp), [], "docX", against_file=str(ref_file))
+        ref = B.resolve_diff_reference(Path(tmp), [], "docX", against_file=str(ref_file))
         assert ref["status"] == "ok"
         assert ref["reference"] == {
             "kind": "file", "filePath": str(ref_file), "sha256": sha, "sizeBytes": ref_file.stat().st_size,
         }
-        assert K.node_uid(ref["root"]) == "u-root"
+        assert T.node_uid(ref["root"]) == "u-root"
 
 
 def test_resolve_diff_reference_by_sha() -> None:
@@ -736,12 +739,12 @@ def test_resolve_diff_reference_by_sha() -> None:
         sha = _write_kmind(backup_dir / "b.kmind", _sample_tree())
         index = [{"docId": "docX", "backupPath": "b.kmind", "operation": "add-node",
                   "createdAt": datetime.now(timezone.utc).isoformat(), "sha256Before": sha, "sizeBytes": 1}]
-        ref = K.resolve_diff_reference(backup_dir, index, "docX", against_sha256=sha)
+        ref = B.resolve_diff_reference(backup_dir, index, "docX", against_sha256=sha)
         assert ref["status"] == "ok" and ref["reference"]["kind"] == "sha256"
         assert ref["reference"]["sha256Before"] == sha
         # Unknown sha must error, not silently fall back.
         try:
-            K.resolve_diff_reference(backup_dir, index, "docX", against_sha256="deadbeef")
+            B.resolve_diff_reference(backup_dir, index, "docX", against_sha256="deadbeef")
             raise AssertionError("expected ValueError for unknown sha256")
         except ValueError:
             pass
@@ -753,13 +756,13 @@ def test_resolve_diff_reference_by_backup_path() -> None:
         _write_kmind(backup_dir / "b.kmind", _sample_tree())
         index = [{"docId": "docX", "backupPath": "b.kmind", "operation": "add-node",
                   "createdAt": datetime.now(timezone.utc).isoformat(), "sha256Before": "x", "sizeBytes": 1}]
-        ref = K.resolve_diff_reference(backup_dir, index, "docX", against_backup_path="b.kmind")
+        ref = B.resolve_diff_reference(backup_dir, index, "docX", against_backup_path="b.kmind")
         assert ref["status"] == "ok" and ref["reference"]["kind"] == "backup-path"
         assert ref["reference"]["backupPath"] == "b.kmind"
         assert ref["reference"]["operation"] == "add-node"
         # Missing backup file must raise, not silently diff against nothing.
         try:
-            K.resolve_diff_reference(backup_dir, index, "docX", against_backup_path="missing.kmind")
+            B.resolve_diff_reference(backup_dir, index, "docX", against_backup_path="missing.kmind")
             raise AssertionError("expected FileNotFoundError for missing backup")
         except FileNotFoundError:
             pass
@@ -768,7 +771,7 @@ def test_resolve_diff_reference_by_backup_path() -> None:
 def test_resolve_diff_reference_rejects_multiple_refs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         try:
-            K.resolve_diff_reference(
+            B.resolve_diff_reference(
                 Path(tmp), [], "docX",
                 against_backup_path="b.kmind", against_file="x.kmind",
             )
@@ -788,12 +791,12 @@ def test_resolve_diff_reference_rejects_index_path_escape() -> None:
                   "createdAt": datetime.now(timezone.utc).isoformat(),
                   "sha256Before": "sha-escape"}]
 
-        ref = K.resolve_diff_reference(backup_dir, index, "docX")
+        ref = B.resolve_diff_reference(backup_dir, index, "docX")
         assert ref["status"] == "no-reference-available"
         assert "escapes backup dir" in ref["message"]
 
         try:
-            K.resolve_diff_reference(backup_dir, index, "docX", against_sha256="sha-escape")
+            B.resolve_diff_reference(backup_dir, index, "docX", against_sha256="sha-escape")
             raise AssertionError("expected ValueError for backup path escaping backup dir")
         except ValueError as error:
             assert "escapes backup dir" in str(error)
@@ -824,7 +827,7 @@ def test_list_kmind_backups_newest_first_and_summary() -> None:
              "operation": "add-node", "createdAt": base.isoformat(),
              "sha256Before": "sha-b1", "sizeBytes": 100},
         ]
-        out = K.list_kmind_backups(backup_dir, index, "docA")
+        out = B.list_kmind_backups(backup_dir, index, "docA")
 
         # Only docA, newest first (a2 is newer than a1).
         assert [b["backupPath"] for b in out["backups"]] == ["a2.kmind", "a1.kmind"]
@@ -846,7 +849,7 @@ def test_list_kmind_backups_newest_first_and_summary() -> None:
 def test_list_kmind_backups_empty_is_not_an_error() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         backup_dir = Path(tmp)
-        out = K.list_kmind_backups(backup_dir, [], "docMissing")
+        out = B.list_kmind_backups(backup_dir, [], "docMissing")
         assert out["backups"] == []
         assert out["summary"] == {
             "count": 0, "totalSizeBytes": 0, "missingFiles": 0,
@@ -864,9 +867,9 @@ def test_list_kmind_backups_filters_by_doc_id() -> None:
              "sha256Before": "s", "sizeBytes": 5, "source": "assets/x.kmind"},
         ]
         # An unrelated doc -> empty list, no error.
-        assert K.list_kmind_backups(backup_dir, index, "docB")["summary"]["count"] == 0
+        assert B.list_kmind_backups(backup_dir, index, "docB")["summary"]["count"] == 0
         # The matching doc -> one entry, present on disk.
-        out_a = K.list_kmind_backups(backup_dir, index, "docA")
+        out_a = B.list_kmind_backups(backup_dir, index, "docA")
         assert [b["backupPath"] for b in out_a["backups"]] == ["x.kmind"]
         assert out_a["backups"][0]["existsOnDisk"] is True
         assert out_a["summary"]["missingFiles"] == 0
@@ -879,19 +882,19 @@ def test_list_kmind_backups_reads_what_write_backup_wrote() -> None:
         asset = data_dir / "assets" / "map.kmind"
         asset.parent.mkdir()
         asset.write_bytes(b'{"root":{"data":{"text":"<p>x</p>"},"children":[]}}')
-        name = K.write_backup(
+        name = B.write_backup(
             data_dir=data_dir, asset_abs=asset, asset_rel="assets/map.kmind",
-            doc_id="docZ", operation="add-node", sha256_before=K._sha256(asset.read_bytes()),
+            doc_id="docZ", operation="add-node", sha256_before=F._sha256(asset.read_bytes()),
             size_bytes=asset.stat().st_size, timestamp="20260601-120000-000000",
         )
-        backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
-        out = K.list_kmind_backups(backup_dir, K._load_backup_index(backup_dir), "docZ")
+        backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
+        out = B.list_kmind_backups(backup_dir, B._load_backup_index(backup_dir), "docZ")
         assert out["summary"]["count"] == 1 and out["summary"]["missingFiles"] == 0
         assert out["summary"]["totalSizeBytes"] == asset.stat().st_size
         entry = out["backups"][0]
         assert entry["backupPath"] == name
         assert entry["operation"] == "add-node"
-        assert entry["sha256Before"] == K._sha256(asset.read_bytes())
+        assert entry["sha256Before"] == F._sha256(asset.read_bytes())
         assert entry["source"] == "assets/map.kmind"
         assert entry["existsOnDisk"] is True
 
@@ -907,7 +910,7 @@ def test_list_kmind_backups_path_escape_counts_missing() -> None:
                   "operation": "add-node", "sha256Before": "sha",
                   "sizeBytes": 2, "source": "assets/map.kmind"}]
 
-        out = K.list_kmind_backups(backup_dir, index, "docX")
+        out = B.list_kmind_backups(backup_dir, index, "docX")
 
         assert out["summary"]["count"] == 1
         assert out["summary"]["missingFiles"] == 1
@@ -929,7 +932,7 @@ def test_resolve_restore_source_requires_exactly_one_identity() -> None:
         backup_dir = Path(tmp)
         for kwargs in ({}, {"backup_path": "b.kmind", "sha256_before": "s"}):
             try:
-                K.resolve_restore_source(backup_dir, [], "docA", **kwargs)
+                B.resolve_restore_source(backup_dir, [], "docA", **kwargs)
                 raise AssertionError(f"expected ValueError for {kwargs}")
             except ValueError:
                 pass
@@ -943,13 +946,13 @@ def test_resolve_restore_source_by_path_and_by_sha() -> None:
                   "createdAt": "2026-06-01T00:00:00+00:00", "sha256Before": sha,
                   "sizeBytes": 1, "source": "assets/x.kmind"}]
         for src in (
-            K.resolve_restore_source(backup_dir, index, "docA", backup_path="g.kmind"),
-            K.resolve_restore_source(backup_dir, index, "docA", sha256_before=sha),
+            B.resolve_restore_source(backup_dir, index, "docA", backup_path="g.kmind"),
+            B.resolve_restore_source(backup_dir, index, "docA", sha256_before=sha),
         ):
             assert src["backupSha256"] == sha
             assert src["entry"]["backupPath"] == "g.kmind"
             assert src["entry"]["docId"] == "docA"
-            assert K.node_plain_text(src["backupRoot"]) == "Example KMind"
+            assert T.node_plain_text(src["backupRoot"]) == "Example KMind"
 
 
 def test_resolve_restore_source_rejects_foreign_doc() -> None:
@@ -960,7 +963,7 @@ def test_resolve_restore_source_rejects_foreign_doc() -> None:
                   "createdAt": "2026-06-01T00:00:00+00:00", "sha256Before": sha,
                   "sizeBytes": 1, "source": "assets/x.kmind"}]
         try:
-            K.resolve_restore_source(backup_dir, index, "docA", backup_path="g.kmind")
+            B.resolve_restore_source(backup_dir, index, "docA", backup_path="g.kmind")
             raise AssertionError("expected ValueError for a foreign-doc backup")
         except ValueError as exc:
             assert "docA" in str(exc) or "document" in str(exc).lower()
@@ -971,7 +974,7 @@ def test_resolve_restore_source_missing_and_escaping() -> None:
         backup_dir = Path(tmp)
         # Not recorded in the index.
         try:
-            K.resolve_restore_source(backup_dir, [], "docA", backup_path="nope.kmind")
+            B.resolve_restore_source(backup_dir, [], "docA", backup_path="nope.kmind")
             raise AssertionError("expected ValueError for an unknown backup")
         except ValueError:
             pass
@@ -979,7 +982,7 @@ def test_resolve_restore_source_missing_and_escaping() -> None:
         gone = [{"docId": "docA", "backupPath": "gone.kmind", "operation": "add-node",
                  "createdAt": "t", "sha256Before": "s", "sizeBytes": 1, "source": "x"}]
         try:
-            K.resolve_restore_source(backup_dir, gone, "docA", backup_path="gone.kmind")
+            B.resolve_restore_source(backup_dir, gone, "docA", backup_path="gone.kmind")
             raise AssertionError("expected FileNotFoundError for a missing backup file")
         except FileNotFoundError:
             pass
@@ -987,7 +990,7 @@ def test_resolve_restore_source_missing_and_escaping() -> None:
         escaping = [{"docId": "docA", "backupPath": "../evil.kmind", "operation": "add-node",
                      "createdAt": "t", "sha256Before": "esc", "sizeBytes": 1, "source": "x"}]
         try:
-            K.resolve_restore_source(backup_dir, escaping, "docA", sha256_before="esc")
+            B.resolve_restore_source(backup_dir, escaping, "docA", sha256_before="esc")
             raise AssertionError("expected ValueError for an escaping backup path")
         except ValueError:
             pass
@@ -1003,7 +1006,7 @@ def test_resolve_restore_source_rejects_corrupt_backup_hash() -> None:
                   "source": "assets/x.kmind"}]
 
         try:
-            K.resolve_restore_source(backup_dir, index, "docA", backup_path="g.kmind")
+            B.resolve_restore_source(backup_dir, index, "docA", backup_path="g.kmind")
             raise AssertionError("expected ValueError for backup hash mismatch")
         except ValueError as error:
             assert "hash mismatch" in str(error)
@@ -1012,7 +1015,7 @@ def test_resolve_restore_source_rejects_corrupt_backup_hash() -> None:
 def _restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
     """data_dir with a good docA backup on disk + index, and a different current asset."""
     data_dir = Path(tmp)
-    backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+    backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
     backup_dir.mkdir(parents=True)
     (data_dir / "assets").mkdir()
 
@@ -1022,7 +1025,7 @@ def _restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
         "operation": "add-node", "createdAt": datetime.now(timezone.utc).isoformat(),
         "sha256Before": good_sha, "sizeBytes": (backup_dir / "good.kmind").stat().st_size,
     }]
-    K._save_backup_index(backup_dir, index)
+    B._save_backup_index(backup_dir, index)
 
     cur_tree = _sample_tree()
     cur_tree["root"]["data"]["text"] = "<p>DAMAGED</p>"
@@ -1034,12 +1037,12 @@ def _restore_fixture(tmp: str) -> tuple[Path, Path, str, list[dict]]:
 def test_restore_kmind_backup_dry_run_writes_nothing() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         data_dir, asset, good_sha, index = _restore_fixture(tmp)
-        backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
         before_files = sorted(p.name for p in backup_dir.iterdir())
         cur_bytes = asset.read_bytes()
-        cur_sha = K._sha256(cur_bytes)
+        cur_sha = F._sha256(cur_bytes)
 
-        out = K.restore_kmind_backup(
+        out = B.restore_kmind_backup(
             asset_abs=asset, data_dir=data_dir, asset_rel="assets/map.kmind",
             doc_id="docA", index=index, sha256_before=good_sha, dry_run=True,
         )
@@ -1059,11 +1062,11 @@ def test_restore_kmind_backup_dry_run_writes_nothing() -> None:
 def test_restore_kmind_backup_real_round_trip() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         data_dir, asset, good_sha, index = _restore_fixture(tmp)
-        backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
-        cur_sha = K._sha256(asset.read_bytes())
+        backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
+        cur_sha = F._sha256(asset.read_bytes())
         assert cur_sha != good_sha
 
-        out = K.restore_kmind_backup(
+        out = B.restore_kmind_backup(
             asset_abs=asset, data_dir=data_dir, asset_rel="assets/map.kmind",
             doc_id="docA", index=index, backup_path="good.kmind", dry_run=False,
         )
@@ -1072,14 +1075,14 @@ def test_restore_kmind_backup_real_round_trip() -> None:
         assert out["dryRun"] is False
         assert out["sha256After"] == good_sha
         assert asset.read_bytes() == (backup_dir / "good.kmind").read_bytes()
-        assert K.node_plain_text(K._require_root(K.load_kmind(asset)[0])) == "Example KMind"
+        assert T.node_plain_text(T._require_root(F.load_kmind(asset)[0])) == "Example KMind"
 
         # A before-restore backup of the prior (damaged) content was created...
         created = out["backupCreated"]
         assert created and "before-restore" in created
-        assert K._sha256((backup_dir / created).read_bytes()) == cur_sha
+        assert F._sha256((backup_dir / created).read_bytes()) == cur_sha
         # ...and recorded in the index for docA with operation "restore".
-        disk_index = json.loads((backup_dir / K.BACKUP_INDEX_NAME).read_text())
+        disk_index = json.loads((backup_dir / B.BACKUP_INDEX_NAME).read_text())
         assert any(
             e["backupPath"] == created and e["docId"] == "docA"
             and e["operation"] == "restore" and e["sha256Before"] == cur_sha
@@ -1090,12 +1093,12 @@ def test_restore_kmind_backup_real_round_trip() -> None:
 def test_restore_kmind_backup_expected_sha_mismatch_aborts() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         data_dir, asset, good_sha, index = _restore_fixture(tmp)
-        backup_dir = data_dir.joinpath(*K.BACKUP_REL_DIR)
+        backup_dir = data_dir.joinpath(*B.BACKUP_REL_DIR)
         before_files = sorted(p.name for p in backup_dir.iterdir())
         cur_bytes = asset.read_bytes()
 
         try:
-            K.restore_kmind_backup(
+            B.restore_kmind_backup(
                 asset_abs=asset, data_dir=data_dir, asset_rel="assets/map.kmind",
                 doc_id="docA", index=index, backup_path="good.kmind",
                 expected_sha256="not-the-current-sha", dry_run=False,
