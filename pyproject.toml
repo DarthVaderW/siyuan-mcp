@@ -5,7 +5,7 @@ description = "A focused SiYuan MCP server exposing low-level SiYuan document, b
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "mcp>=1.16.0"
+  "mcp>=1.16.0,<2"
 ]
 
 [project.scripts]
