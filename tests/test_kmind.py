@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from siyuan_mcp import kmind as K
+from siyuan_mcp import core as C
 
 
 def _write_backup_worker(data_dir: str, asset_name: str, ready, start) -> None:
@@ -57,6 +58,31 @@ def test_data_dir_legacy_config_fallback() -> None:
         with mock.patch.dict(K.os.environ, {"SIYUAN_DATA_DIR": ""}):
             with mock.patch.object(K, "call_siyuan", return_value={"conf": {"system": {"dataDir": tmp}}}):
                 assert K.find_siyuan_data_dir() == Path(tmp)
+
+
+def test_kmind_resolution_reuses_core_id_fast_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "assets").mkdir()
+        (root / "assets" / "map.kmind").write_bytes(b"{}")
+        notebook_id = "20260929000000-abcdefg"
+        calls = []
+
+        def core_api(endpoint, payload):
+            calls.append(endpoint)
+            if endpoint == "/api/filetree/getIDsByHPath":
+                assert payload == {"notebook": notebook_id, "path": "/Map"}
+                return ["doc-id"]
+            if endpoint == "/api/filetree/getHPathByID":
+                return "/Map"
+            raise AssertionError(f"unexpected core call: {endpoint}")
+
+        with mock.patch.object(C, "call_siyuan", side_effect=core_api), \
+                mock.patch.object(K, "call_siyuan", return_value={K.DOC_KMIND_ASSET_ATTR: "assets/map.kmind"}), \
+                mock.patch.object(K, "find_siyuan_data_dir", return_value=root):
+            result = K.resolve_kmind_doc(path="Map", notebook=notebook_id)
+        assert result["docId"] == "doc-id"
+        assert calls == ["/api/filetree/getIDsByHPath", "/api/filetree/getHPathByID"]
 
 
 def test_html_text_and_rich_text() -> None:
@@ -494,6 +520,31 @@ def test_atomic_replace_failure_keeps_original_and_removes_temp() -> None:
                 pass
         assert asset.read_bytes() == b"original"
         assert sorted(path.name for path in Path(tmp).iterdir()) == ["map.kmind"]
+
+
+def test_ui_edit_during_temp_file_fsync_aborts_commit() -> None:
+    from siyuan_mcp import kmind_storage
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        asset = root / "map.kmind"
+        asset.write_bytes(b"original")
+        ui_bytes = b"external UI edit"
+        original_fsync = kmind_storage.os.fsync
+
+        def edit_during_fsync(fd):
+            original_fsync(fd)
+            asset.write_bytes(ui_bytes)
+
+        with mock.patch.object(kmind_storage.os, "fsync", side_effect=edit_during_fsync):
+            try:
+                kmind_storage.commit_asset(asset, K._sha256(b"original"), b"MCP edit",
+                                            K._sha256, lambda _current: None)
+                raise AssertionError("UI edit must abort commit")
+            except ValueError as error:
+                assert "changed on disk" in str(error)
+        assert asset.read_bytes() == ui_bytes
+        assert not list(root.glob(".map.kmind.*.tmp"))
 
 
 def test_backup_same_second_collision_keeps_both_files() -> None:

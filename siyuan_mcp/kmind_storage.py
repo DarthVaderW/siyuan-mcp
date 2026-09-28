@@ -42,7 +42,9 @@ def file_lock(path: Path):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def atomic_replace(path: Path, data: bytes) -> None:
+def atomic_replace(
+    path: Path, data: bytes, *, before_replace: Callable[[], object] | None = None,
+) -> None:
     """Replace a file without exposing a partially written destination."""
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
@@ -53,6 +55,8 @@ def atomic_replace(path: Path, data: bytes) -> None:
             os.fsync(stream.fileno())
         if path.exists():
             temporary.chmod(path.stat().st_mode)
+        if before_replace is not None:
+            before_replace()
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -78,6 +82,5 @@ def commit_asset(
     with file_lock(asset):
         current = verify()
         backup_name = backup(current)
-        verify()
-        atomic_replace(asset, replacement)
+        atomic_replace(asset, replacement, before_replace=verify)
         return backup_name
