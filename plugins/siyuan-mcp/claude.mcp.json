@@ -11,6 +11,7 @@
         "SIYUAN_BASE_URL": "${user_config.siyuan_base_url}",
         "SIYUAN_TOKEN": "${user_config.siyuan_token}",
         "SIYUAN_DEFAULT_NOTEBOOK": "${user_config.siyuan_default_notebook}",
+        "SIYUAN_DATA_DIR": "${user_config.siyuan_data_dir}",
         "SIYUAN_ALLOW_RAW_API": "${user_config.siyuan_allow_raw_api}"
       }
     }

@@ -48,6 +48,22 @@ def test_plugin_manifest_versions_match_pyproject() -> None:
             assert data.get("version") == expected, f"{path} version drifted from pyproject"
 
 
+def test_lock_and_plugin_kmind_config_match_release() -> None:
+    root = Path(__file__).resolve().parents[1]
+    expected = pyproject_version()
+    lock = (root / "uv.lock").read_text(encoding="utf-8")
+    package = lock.split('name = "siyuan-mcp"', 1)[1].split("[[package]]", 1)[0]
+    assert f'version = "{expected}"' in package
+
+    plugin = root / "plugins" / "siyuan-mcp"
+    claude = json.loads((plugin / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    claude_mcp = json.loads((plugin / "claude.mcp.json").read_text(encoding="utf-8"))
+    codex_mcp = json.loads((plugin / ".mcp.json").read_text(encoding="utf-8"))
+    assert "siyuan_data_dir" in claude["userConfig"]
+    assert claude_mcp["mcpServers"]["siyuan"]["env"]["SIYUAN_DATA_DIR"] == "${user_config.siyuan_data_dir}"
+    assert "SIYUAN_DATA_DIR" in codex_mcp["mcpServers"]["siyuan"]["env_vars"]
+
+
 def main() -> None:
     test_runtime_versions_match_pyproject()
     test_plugin_manifest_versions_match_pyproject()

@@ -57,9 +57,10 @@ DarthVaderW/siyuan-mcp
 ## Configure
 
 KMind asset writes and backup-index updates coordinate across cooperating MCP
-processes with file locks and atomic replacement. SiYuan's own UI does not
-take these locks; a UI edit between the final hash check and replacement can
-still race. Re-read the KMind file after a conflict or external edit.
+processes with file locks and atomic replacement. The final asset hash check
+runs after the temporary replacement has been written and synced. SiYuan's own
+UI does not take these locks; an edit between that final check and replacement
+can still race. Re-read the KMind file after a conflict or external edit.
 
 Required local values:
 
@@ -75,6 +76,8 @@ For KMind tools on a local SiYuan 3.8.5 instance, also set
 for example `C:/Users/<you>/SiYuan/data`. Recent kernels redact filesystem
 paths in `getConf`; KMind cannot discover the directory from that response.
 This optional setting is only for KMind's local files, not ordinary API tools.
+The Claude plugin prompts for this value as `siyuan_data_dir`; the Codex plugin
+shell declares `SIYUAN_DATA_DIR` for local environment injection.
 Do not point it at a different workspace or use it with a remote kernel.
 
 Codex users enter these in the custom STDIO MCP configuration. Claude Code users

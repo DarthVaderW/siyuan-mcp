@@ -11,6 +11,7 @@
         "SIYUAN_BASE_URL",
         "SIYUAN_TOKEN",
         "SIYUAN_DEFAULT_NOTEBOOK",
+        "SIYUAN_DATA_DIR",
         "SIYUAN_ALLOW_RAW_API"
       ]
     }

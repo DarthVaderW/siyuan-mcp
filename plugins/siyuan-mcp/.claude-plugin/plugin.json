@@ -1,7 +1,7 @@
 {
   "name": "siyuan-mcp",
   "displayName": "SiYuan MCP",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Connect Claude Code to local SiYuan tools.",
   "author": {
     "name": "Haotian Wang",
@@ -31,6 +31,11 @@
       "title": "Default notebook",
       "description": "Default SiYuan notebook name or id.",
       "required": true
+    },
+    "siyuan_data_dir": {
+      "type": "string",
+      "title": "SiYuan data directory",
+      "description": "Absolute path to this local SiYuan workspace's data directory; required for KMind tools on SiYuan 3.8.5."
     },
     "siyuan_allow_raw_api": {
       "type": "boolean",
