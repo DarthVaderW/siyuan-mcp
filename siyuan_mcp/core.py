@@ -1,8 +1,8 @@
 """Shared core for the SiYuan MCP server.
 
 Holds the single FastMCP instance, runtime configuration, and the low-level
-SiYuan HTTP client. Tool modules (server.py, attributeview.py, and future
-kmind.py) import from here so they all register on the same `mcp` instance.
+SiYuan HTTP client. Tool modules import from here so they all register on the
+same `mcp` instance.
 This module must never be run as ``__main__``.
 """
 
@@ -226,3 +226,16 @@ def generate_node_id() -> str:
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
     suffix = "".join(random.choice(alphabet) for _ in range(7))
     return datetime.now().strftime("%Y%m%d%H%M%S") + "-" + suffix
+
+
+def sql_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def dig(data: Any, *keys: str) -> Any:
+    current = data
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current

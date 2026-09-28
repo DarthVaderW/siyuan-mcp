@@ -1,8 +1,7 @@
 """Consistency test: registered MCP tools == docs/TOOLS.md documented tools.
 
-Offline only. Importing siyuan_mcp.server registers every tool (server.py's
-own tools plus attributeview.py/kmind.py/links.py, imported for their side
-effect) on the shared FastMCP instance without touching the network or
+Offline only. Importing siyuan_mcp.server explicitly registers all tool groups
+on the shared FastMCP instance without touching the network or
 requiring SIYUAN_TOKEN -- SiYuan is only contacted when a tool is actually
 called, never at import/registration time.
 """
